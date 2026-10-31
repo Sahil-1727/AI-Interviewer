@@ -10,7 +10,7 @@
 
     <h1>AI Interviewer</h1>
 
-    <form method="POST">
+    <form method="POST" enctype="multipart/form-data">
 
         <label>Candidate Name</label>
         <br>
@@ -24,9 +24,15 @@
 
         <br><br>
 
-        <label>Resume</label>
-        <br>
-        <textarea name="resume" rows="15" cols="60" required></textarea>
+  <label>Resume</label>
+<br>
+
+<input
+    type="file"
+    name="resume"
+    accept=".pdf"
+    required
+>
 
         <br><br>
 

@@ -4,6 +4,8 @@ from app.services.gemini import (
     evaluate_answer,
     generate_final_scorecard
 )
+from app.services.resume_parser import extract_resume_text
+
 
 app = Flask(
     __name__,
@@ -21,7 +23,14 @@ def home():
 
         candidate_name = request.form.get("candidate_name")
         job_description = request.form.get("job_description")
-        resume = request.form.get("resume")
+        resume_file = request.files.get("resume")
+        try:
+
+            resume = extract_resume_text(resume_file)
+
+        except ValueError as error:
+
+            return f"Resume Error: {error}", 400
 
         interview_plan = generate_interview_plan(
             candidate_name,
@@ -188,6 +197,8 @@ def final_scorecard():
         candidate_name=session.get("candidate_name"),
         scorecard=scorecard
     )
+
+
 
 if __name__ == "__main__":
     app.run(debug=True)
