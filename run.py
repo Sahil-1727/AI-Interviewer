@@ -1,0 +1,193 @@
+from flask import Flask, render_template, request, session, redirect, url_for
+from app.services.gemini import (
+    generate_interview_plan,
+    evaluate_answer,
+    generate_final_scorecard
+)
+
+app = Flask(
+    __name__,
+    template_folder="app/templates",
+    static_folder="app/static"
+)
+
+app.secret_key = "dev-secret-key"
+
+
+@app.route("/", methods=["GET", "POST"])
+def home():
+
+    if request.method == "POST":
+
+        candidate_name = request.form.get("candidate_name")
+        job_description = request.form.get("job_description")
+        resume = request.form.get("resume")
+
+        interview_plan = generate_interview_plan(
+            candidate_name,
+            job_description,
+            resume
+        )
+
+        session["candidate_name"] = candidate_name
+        session["interview_plan"] = interview_plan
+        session["current_question"] = 0
+        session["interview_history"] = []
+
+        return redirect(url_for("start_interview"))
+
+    return render_template("index.html")
+
+
+@app.route("/start-interview")
+def start_interview():
+
+    interview_plan = session.get("interview_plan")
+
+    if not interview_plan:
+        return redirect(url_for("home"))
+
+    questions = interview_plan["questions"]
+    current_question = session.get("current_question", 0)
+
+    if current_question >= len(questions):
+        return "Interview completed!"
+
+    question = questions[current_question]
+
+    return render_template(
+        "interview.html",
+        candidate_name=session.get("candidate_name"),
+        question=question,
+        question_number=current_question + 1,
+        total_questions=len(questions)
+    )
+
+@app.route("/submit-answer", methods=["POST"])
+def submit_answer():
+
+    answer = request.form.get("answer")
+
+    interview_plan = session.get("interview_plan")
+
+    if not interview_plan:
+        return redirect(url_for("home"))
+
+    current_question = session.get("current_question", 0)
+
+    question = interview_plan["questions"][current_question]
+
+    evaluation = evaluate_answer(
+        question,
+        answer
+    )
+    history = session.get("interview_history", [])
+
+    history.append({
+    "question": question["question"],
+    "skill": question["skill"],
+    "type": question["type"],
+    "answer": answer,
+    "evaluation": evaluation
+    })
+
+    session["interview_history"] = history
+
+    print("Candidate Answer:")
+    print(answer)
+
+    print("Evaluation:")
+    print(evaluation)
+
+    if evaluation["follow_up_needed"]:
+
+        follow_up_question = {
+            "type": "follow_up",
+            "skill": question["skill"],
+            "question": evaluation["follow_up_question"]
+        }
+
+        session["current_follow_up"] = follow_up_question
+
+        return redirect(url_for("follow_up"))
+
+    session["current_question"] = current_question + 1
+
+    if session["current_question"] >= len(interview_plan["questions"]):
+        return redirect(url_for("final_scorecard"))
+
+    return redirect(url_for("start_interview"))
+
+@app.route("/follow-up")
+def follow_up():
+
+    follow_up_question = session.get("current_follow_up")
+
+    if not follow_up_question:
+        return redirect(url_for("start_interview"))
+
+    return render_template(
+        "interview.html",
+        candidate_name=session.get("candidate_name"),
+        question=follow_up_question,
+        question_number="Follow-up",
+        total_questions=""
+    )
+@app.route("/submit-follow-up", methods=["POST"])
+def submit_follow_up():
+
+    answer = request.form.get("answer")
+
+    follow_up_question = session.get("current_follow_up")
+
+    history = session.get("interview_history", [])
+
+    if history:
+
+        history[-1]["follow_up"] = {
+            "question": follow_up_question["question"],
+            "answer": answer
+        }
+
+    session["interview_history"] = history
+
+    print("Follow-up Question:")
+    print(follow_up_question["question"])
+
+    print("Follow-up Answer:")
+    print(answer)
+
+    session.pop("current_follow_up", None)
+
+    current_question = session.get("current_question", 0)
+
+    session["current_question"] = current_question + 1
+
+    interview_plan = session.get("interview_plan")
+
+    if session["current_question"] >= len(interview_plan["questions"]):
+        return redirect(url_for("final_scorecard"))
+
+    return redirect(url_for("start_interview"))
+
+@app.route("/final-scorecard")
+def final_scorecard():
+
+    interview_history = session.get("interview_history", [])
+
+    if not interview_history:
+        return redirect(url_for("home"))
+
+    scorecard = generate_final_scorecard(
+        session.get("candidate_name"),
+        interview_history
+    )
+
+    return render_template(
+        "scorecard.html",
+        candidate_name=session.get("candidate_name"),
+        scorecard=scorecard
+    )
+
+if __name__ == "__main__":
+    app.run(debug=True)

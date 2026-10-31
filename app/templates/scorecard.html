@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>Interview Scorecard</title>
+
+</head>
+
+<body>
+
+    <h1>AI Interview Scorecard</h1>
+
+    <h2>{{ candidate_name }}</h2>
+
+    <hr>
+
+    <h2>Overall Score</h2>
+
+    <h1>{{ scorecard.overall_score }}/10</h1>
+
+    <hr>
+
+    <h2>Recommendation</h2>
+
+    <h3>{{ scorecard.recommendation }}</h3>
+
+    <hr>
+
+    <h2>Competency Scores</h2>
+
+    {% for competency in scorecard.competency_scores %}
+
+        <h3>
+            {{ competency.competency }}
+            — {{ competency.score }}/10
+        </h3>
+
+        <p>
+            {{ competency.summary }}
+        </p>
+
+    {% endfor %}
+
+    <hr>
+
+    <h2>Strengths</h2>
+
+    <ul>
+
+        {% for strength in scorecard.strengths %}
+
+            <li>{{ strength }}</li>
+
+        {% endfor %}
+
+    </ul>
+
+    <h2>Areas to Improve</h2>
+
+    <ul>
+
+        {% for area in scorecard.areas_to_improve %}
+
+            <li>{{ area }}</li>
+
+        {% endfor %}
+
+    </ul>
+
+    <hr>
+
+    <h2>Communication Assessment</h2>
+
+    <p>
+        {{ scorecard.communication_assessment }}
+    </p>
+
+    <h2>Technical Assessment</h2>
+
+    <p>
+        {{ scorecard.technical_assessment }}
+    </p>
+
+    <hr>
+
+    <h2>Final Summary</h2>
+
+    <p>
+        {{ scorecard.final_summary }}
+    </p>
+
+</body>
+
+</html>

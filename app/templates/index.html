@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Interviewer</title>
+</head>
+
+<body>
+
+    <h1>AI Interviewer</h1>
+
+    <form method="POST">
+
+        <label>Candidate Name</label>
+        <br>
+        <input type="text" name="candidate_name" required>
+
+        <br><br>
+
+        <label>Job Description</label>
+        <br>
+        <textarea name="job_description" rows="10" cols="60" required></textarea>
+
+        <br><br>
+
+        <label>Resume</label>
+        <br>
+        <textarea name="resume" rows="15" cols="60" required></textarea>
+
+        <br><br>
+
+        <button type="submit">Create Interview</button>
+
+    </form>
+
+{% if interview_plan %}
+    <hr>
+
+    <h2>Generated Interview Plan</h2>
+
+    <pre>{{ interview_plan }}</pre>
+{% endif %}
+
+</body>
+</html>

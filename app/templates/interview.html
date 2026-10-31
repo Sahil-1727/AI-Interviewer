@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>AI Interviewer</title>
+</head>
+
+<body>
+
+    <h1>AI Interviewer</h1>
+
+    <p>
+        Candidate: {{ candidate_name }}
+    </p>
+
+    <hr>
+
+    <p>
+        Question {{ question_number }} of {{ total_questions }}
+    </p>
+
+    <h2>{{ question.question }}</h2>
+
+    <p>
+        <strong>Skill:</strong> {{ question.skill }}
+    </p>
+
+    <p>
+        <strong>Type:</strong> {{ question.type }}
+    </p>
+
+    <br>
+
+    <form method="POST"
+      action="{% if question.type == 'follow_up' %}/submit-follow-up{% else %}/submit-answer{% endif %}">
+
+        <label for="answer">Your Answer</label>
+        <br>
+
+        <textarea
+            id="answer"
+            name="answer"
+            rows="10"
+            cols="70"
+            required
+        ></textarea>
+
+        <br><br>
+
+        <button type="submit">
+            Submit Answer
+        </button>
+
+    </form>
+
+</body>
+</html>
