@@ -1,4 +1,8 @@
 import copy
+import json
+from pathlib import Path
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 import tempfile
 import threading
@@ -206,6 +210,42 @@ class ConversationTests(unittest.TestCase):
             result = self.send(state)
             self.assertTrue(result['mock'])
             self.evaluate.assert_not_called()
+
+    def test_control_only_transcripts_never_reach_evaluation(self):
+        state = self.start()
+        for text, command in [("I'm done.", 'complete'), ('Give me a moment.', 'think'), ('Can you repeat the question?', 'repeat')]:
+            result = self.client.post('/api/conversation/answer', json=self.payload(state, text))
+            self.assertEqual(result.status_code, 202)
+            self.assertEqual(result.json['control_action'], command)
+            self.assertEqual(result.json['turn_id'], state['turn_id'])
+        self.evaluate.assert_not_called()
+
+    def test_independent_processes_share_the_same_durable_turn_claim(self):
+        state = self.start()
+        payload = self.payload(state)
+        counter = str(Path(self.directory.name) / 'evaluation-count')
+        script = '''
+import json, sys, time
+from app.services.conversation import ConversationService, mock_evaluate, mock_scorecard
+from app.voice_config import DEFAULTS
+def evaluate(question, answer):
+    with open(sys.argv[4], 'a') as file:
+        file.write('evaluated\\n')
+    time.sleep(.2)
+    return mock_evaluate(question, answer)
+service = ConversationService(sys.argv[1], evaluate, mock_scorecard, DEFAULTS)
+try:
+    service.accept(sys.argv[2], json.loads(sys.argv[3]))
+finally:
+    service.executor.shutdown(wait=True)
+'''
+        command = [sys.executable, '-c', script, str(self.service.journal.directory), state['interview_id'], json.dumps(payload), counter]
+        processes = [subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(2)]
+        for process in processes:
+            output, error = process.communicate(timeout=10)
+            self.assertEqual(process.returncode, 0, output + error)
+        self.assertEqual(Path(counter).read_text().splitlines(), ['evaluated'])
+        self.assertEqual(len(self.service.get(state['interview_id'])['interview_history']), 1)
 
 
 if __name__ == '__main__':

@@ -43,46 +43,62 @@
                 </div>
                 <div class="question-content">
                     <div class="question-meta">
-                        <span class="eyebrow">
+                        <span class="eyebrow" id="question-count">
                             {% if is_followup %}FOLLOW-UP QUESTION{% else %}QUESTION {{ '%02d'|format(current) }}{% if total %}
                             <span class="muted">/ {{ '%02d'|format(total) }}</span>
                             {% endif %}{% endif %}
                         </span>
-                        <span class="skill-tag">{{ question.skill }}</span>
+                        <span class="skill-tag" id="question-skill">{{ question.skill }}</span>
                     </div>
-                    {% if is_followup %}
-                    <p class="followup-note">Let’s explore your last answer a little further.</p>
-                    {% endif %}
+                    <p class="followup-note" id="followup-note" {% if not is_followup %}hidden{% endif %}>Let’s explore your last answer a little further.</p>
                     <h2 id="interview-question">{{ question.question }}</h2>
                     <div class="question-bottom">
                         <div class="audio-controls">
                             <button type="button" id="speak-question" class="button button-text">{{ icon('speaker') }} Listen / repeat question</button>
                             <button type="button" id="stop-speaking" class="button button-text muted" disabled>{{ icon('stop') }} Stop audio</button>
                         </div>
-                        <span class="tiny-label question-type">{{ question.type|replace('_', ' ') }}</span>
+                        <span class="tiny-label question-type" id="question-type">{{ question.type|replace('_', ' ') }}</span>
                     </div>
                 </div>
             </section>
-            <form method="POST" id="answer-form" data-submit-form action="{% if question.type == 'follow_up' %}/submit-follow-up{% else %}/submit-answer{% endif %}" class="answer-panel">
-                <div class="answer-heading">
-                    <label for="answer">Your answer</label>
-                    <span class="tiny-label">TYPE OR USE YOUR MICROPHONE</span>
+            <section class="conversation-controls" aria-label="Interview controls">
+                {% if voice_mock_mode %}<p class="tiny-label">PRACTICE SANDBOX · SIMULATED INTERVIEW DECISIONS</p>{% endif %}
+                <div class="conversation-start">
+                    <button type="button" id="start-interview" class="button button-primary">Start Interview {{ icon('arrow') }}</button>
+                    <button type="button" id="manual-mode" class="button button-text">Use manual mode</button>
                 </div>
-                <textarea id="answer" name="answer" rows="6" placeholder="Take a moment to think, then make it your own…" required aria-describedby="answer-help voice-status"></textarea>
-                <div class="recording-toolbar">
-                    <label class="tiny-label"><input type="checkbox" id="automatic-voice"> Automatic voice turns (experimental)</label>
-                    <div class="recording-controls">
-                        <button type="button" id="start-recording" class="button button-secondary">{{ icon('mic') }} Record answer</button>
-                        <button type="button" id="stop-recording" class="button button-secondary" disabled>{{ icon('stop') }} Done Speaking</button>
-                        <button type="button" id="pause-voice" class="button button-secondary" disabled>Pause</button>
-                    </div>
-                    <p id="voice-status" role="status" aria-live="polite">Voice ready</p>
+                <p id="voice-status" role="status" aria-live="polite">Start once, then answer naturally.</p>
+                <div id="microphone-activity" class="microphone-activity" hidden>
+                    <span class="tiny-label">MICROPHONE ACTIVITY</span>
+                    <meter id="microphone-level" min="0" max="1" value="0" aria-label="Microphone audio level"></meter>
+                </div>
+                <div class="conversation-secondary recording-controls">
+                    <button type="button" id="pause-voice" class="button button-secondary" disabled>Pause Interview</button>
+                    <button type="button" id="stop-recording" class="button button-secondary" disabled>{{ icon('stop') }} Done Speaking</button>
+                    <button type="button" id="end-interview" class="button button-text" disabled>End Interview</button>
                 </div>
                 <div id="thinking-prompt" hidden>
                     <p id="thinking-message" role="status"></p>
                     <button type="button" id="keep-thinking" class="button button-text">Still thinking — keep listening</button>
                 </div>
-                <div class="answer-submit">
+                <div id="conversation-recovery" hidden>
+                    <button type="button" id="retry-conversation" class="button button-secondary">Reconnect / retry</button>
+                    <p class="tiny-label">Your saved transcript remains available. You can also use manual mode.</p>
+                </div>
+            </section>
+            <form method="POST" id="answer-form" data-submit-form action="{% if question.type == 'follow_up' %}/submit-follow-up{% else %}/submit-answer{% endif %}" class="answer-panel">
+                <div class="answer-heading">
+                    <label for="answer" id="answer-label">Transcript preview</label>
+                    <span class="tiny-label" id="answer-caption">A CONVERSATION AT YOUR PACE</span>
+                </div>
+                <textarea id="answer" name="answer" rows="6" placeholder="Take a moment to think, then make it your own…" required aria-describedby="answer-help voice-status"></textarea>
+                <div class="recording-toolbar manual-only">
+                    <label class="tiny-label" hidden><input type="checkbox" id="automatic-voice"> Automatic voice turns (experimental)</label>
+                    <div class="recording-controls">
+                        <button type="button" id="start-recording" class="button button-secondary">{{ icon('mic') }} Record answer</button>
+                    </div>
+                </div>
+                <div class="answer-submit manual-only">
                     <p id="answer-help">Your transcript stays editable.<br>Review your answer before submitting.</p>
                     <button type="submit" class="button button-primary"><span data-button-label>Submit answer</span>{{ icon('arrow') }}<span class="spinner" aria-hidden="true"></span></button>
                 </div>
@@ -121,14 +137,14 @@
             <section class="session-progress">
                 <div class="section-heading">
                     <h2>Making progress</h2>
-                    <span class="tiny-label">{% if total %}{{ completed }} / {{ total }}{% else %}IN PROGRESS{% endif %}</span>
+                    <span class="tiny-label" id="progress-count">{% if total %}{{ completed }} / {{ total }}{% else %}IN PROGRESS{% endif %}</span>
                 </div>
                 {% if total %}
-                <progress value="{{ completed }}" max="{{ total }}" aria-label="Main questions completed">
+                <progress id="main-progress" value="{{ completed }}" max="{{ total }}" aria-label="Main questions completed">
                     {{ completed }} of {{ total }}
                 </progress>
                 {% endif %}
-                <p>{% if is_followup %}A closer look at your experience. Your main question progress continues after this follow-up.{% else %}One question at a time. Take the space you need to give a considered answer.{% endif %}</p>
+                <p id="progress-note">{% if is_followup %}A closer look at your experience. Your main question progress continues after this follow-up.{% else %}One question at a time. Take the space you need to give a considered answer.{% endif %}</p>
             </section>
             <div class="room-note">
                 <span class="eyebrow">A SMALL REMINDER</span>
@@ -147,5 +163,6 @@
 <script id="voice-config" type="application/json">{{ voice_config|tojson }}</script>
 <script src="{{ url_for('static', filename='js/voice-turns.js') }}"></script>
 <script src="{{ url_for('static', filename='js/voice.js') }}"></script>
+<script src="{{ url_for('static', filename='js/conversation.js') }}"></script>
 <script src="{{ url_for('static', filename='js/camera.js') }}"></script>
 {% endblock %}

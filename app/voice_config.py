@@ -29,6 +29,9 @@ DEFAULTS = {
     "CONVERSATION_RETENTION_SECONDS": 86400,
     "NOISE_FLOOR_MULTIPLIER": 2.5,
     "NOISE_FLOOR_SMOOTHING": 0.05,
+    "MIN_VOICED_SECONDS": 0.2,
+    "STT_MIN_LOGPROB": -1,
+    "STT_MAX_NO_SPEECH_PROB": 0.6,
 }
 
 
@@ -36,7 +39,7 @@ def voice_config():
     settings = {}
     for name, default in DEFAULTS.items():
         value = float(os.getenv(name, default))
-        if not math.isfinite(value) or (value <= 0 and name != "COMPLETION_MIN_LOGPROB"):
+        if not math.isfinite(value) or (value <= 0 and name not in {"COMPLETION_MIN_LOGPROB", "STT_MIN_LOGPROB"}):
             raise ValueError(f"Invalid voice setting: {name}")
         settings[name] = value
     if not settings["MID_ANSWER_PAUSE_SECONDS"] < settings["LONG_PAUSE_CONFIRMATION_SECONDS"]:
@@ -47,4 +50,9 @@ def voice_config():
         raise ValueError("SEGMENT_SECONDS must be below MAX_SEGMENT_SECONDS")
     if settings["CONVERSATION_STALE_SECONDS"] <= settings["GEMINI_TIMEOUT_SECONDS"] * 2:
         raise ValueError("CONVERSATION_STALE_SECONDS must exceed two Gemini timeouts")
+    for name in ("CONVERSATION_WORKERS", "CONVERSATION_QUEUE_LIMIT", "MAX_PENDING_SEGMENTS"):
+        if settings[name] != int(settings[name]) or settings[name] < 1:
+            raise ValueError(f"{name} must be a positive integer")
+    if not 0 < settings["NOISE_FLOOR_SMOOTHING"] <= 1 or settings["STT_MAX_NO_SPEECH_PROB"] > 1:
+        raise ValueError("Noise smoothing and no-speech probability must be within 0–1")
     return settings

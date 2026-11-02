@@ -32,6 +32,11 @@ app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024
 
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key")
 
+
+@app.errorhandler(413)
+def upload_too_large(error):
+    return jsonify(error="Recording or upload exceeds the 12 MB limit. Use shorter recording segments."), 413
+
 # Keep growing interview plans and history on the server. The browser cookie
 # contains only a session ID, so submitting later answers cannot exceed 4 KB.
 session_directory = Path(os.getenv("INTERVIEW_SESSION_DIR", str(Path(app.instance_path) / "sessions")))
@@ -69,7 +74,7 @@ def conversation_error(error):
 
 @app.context_processor
 def experimental_voice_settings():
-    return {"voice_config": voice_config()}
+    return {"voice_config": voice_config(), "voice_mock_mode": app.config.get("VOICE_MOCK_MODE", False)}
 
 
 @app.route("/", methods=["GET", "POST"])

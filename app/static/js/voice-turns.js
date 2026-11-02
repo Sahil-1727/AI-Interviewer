@@ -20,6 +20,13 @@
             this.confirmedAt = null;
         }
 
+        waitForSpeech(now) {
+            this.keepThinking(now);
+            this.hasSpeech = false;
+            this.activitySince = null;
+            this.checkpointed = false;
+        }
+
         sample(level, now) {
             const c = this.config;
             if (level >= c.AUDIO_LEVEL_THRESHOLD) {

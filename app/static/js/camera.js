@@ -8,6 +8,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const cameraStatus = document.getElementById("camera-status");
 
     let cameraStream = null;
+    let cameraEpoch = 0;
 
     // Turn on camera
     startButton.addEventListener("click", async () => {
@@ -21,25 +22,35 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         startButton.disabled = true;
+        const token = ++cameraEpoch;
         cameraStatus.textContent = "Requesting camera access...";
 
         try {
 
-            cameraStream = await navigator.mediaDevices.getUserMedia({
+            const requestedStream = await navigator.mediaDevices.getUserMedia({
                 video: {
                     facingMode: "user"
                 },
                 audio: false
             });
 
+            if (token !== cameraEpoch) {
+                requestedStream.getTracks().forEach(track => track.stop());
+                return;
+            }
+            cameraStream = requestedStream;
+
             video.srcObject = cameraStream;
 
             await video.play();
+            if (token !== cameraEpoch) return;
 
             stopButton.disabled = false;
             cameraStatus.textContent = "Camera is on";
 
         } catch (error) {
+
+            if (token !== cameraEpoch) return;
 
             console.error("Camera error:", error);
 
@@ -62,6 +73,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Turn off camera
     function stopCamera() {
+
+        ++cameraEpoch;
 
         if (cameraStream) {
 

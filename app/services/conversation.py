@@ -22,6 +22,7 @@ import time
 from uuid import uuid4
 
 from app.services.interview_flow import FIELDS, advance, question_for
+from app.services.voice_commands import COMMANDS, normalize
 
 logger = logging.getLogger(__name__)
 IDENTIFIER = re.compile(r"^[a-f0-9]{32}$")
@@ -70,7 +71,11 @@ class Journal:
         """Opportunistic bounded cleanup. Never delete a locked/live journal."""
         cutoff = time.time() - retention_seconds
         for path in list(self.directory.glob("*.json"))[:100]:
-            if path.stat().st_mtime >= cutoff:
+            try:
+                modified = path.stat().st_mtime
+            except FileNotFoundError:
+                continue
+            if modified >= cutoff:
                 continue
             descriptor = os.open(path.with_suffix(".lock"), os.O_CREAT | os.O_RDWR, 0o600)
             with os.fdopen(descriptor, "a+") as lock:
@@ -143,6 +148,12 @@ class ConversationService:
                 raise ConversationError("This turn is already processing or is unavailable.")
             if state.get("paused") and not retry:
                 raise ConversationError("Resume the interview before submitting.")
+            if not retry:
+                for command, phrases in COMMANDS.items():
+                    if normalize(answer) in phrases:
+                        # Defense in depth for low-confidence STT commands:
+                        # control-only utterances must never consume Gemini.
+                        return dict(deepcopy(state), control_action=command)
             if question_for(state) is None and not (retry and state.get("retry_stage") == "scorecard"):
                 raise ConversationError("The interview is complete.")
             if not self.slots.acquire(blocking=False):
@@ -250,6 +261,7 @@ def public_state(state):
             "draft": state.get("draft", ""), "error": state.get("error"), "timings": state.get("timings", {}),
             "mock": state["mock"], "version": state.get("version", 0),
             "end_requested": state.get("end_requested", False),
+            "control_action": state.get("control_action"),
             "scorecard_url": "/final-scorecard" if state["status"] == "completed" else None}
 
 

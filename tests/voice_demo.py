@@ -1,33 +1,37 @@
-"""Manual Stage 1 voice sandbox. Launch: PYTHONPATH=. venv/bin/python tests/voice_demo.py
+"""Deterministic conversational sandbox; Gemini is replaced in this process only.
 
-Uses real local faster-whisper and edge-tts. All non-voice POSTs and the scorecard
-are blocked before view execution, so this sandbox cannot consume Gemini calls.
+Launch: PYTHONPATH=. venv/bin/python tests/voice_demo.py
+STT/TTS stay real. Browser tests intercept their HTTP responses separately.
 """
-from flask import redirect, request, session
-from run import app
+from flask import redirect, session
+import run
+from app.services.conversation import mock_evaluate, mock_scorecard
+
+app = run.app
+app.config['VOICE_MOCK_MODE'] = True
+run.evaluate_answer = mock_evaluate
+run.generate_final_scorecard = mock_scorecard
 
 
-@app.before_request
-def voice_demo_guard():
-    if (request.method == "POST" and request.path not in {"/api/transcribe", "/api/synthesize"}) or request.path == "/final-scorecard":
-        return "Stage 1 sandbox: answer submission and Gemini are disabled. Return to /voice-demo.", 409
+def mock_plan(*args):
+    return {'questions': [
+        {'question': 'Could you briefly introduce yourself and describe a project you enjoyed?',
+         'type': 'behavioral', 'skill': 'Communication', 'mock_follow_up': True},
+        {'question': 'How would you test and improve a Flask application?',
+         'type': 'technical', 'skill': 'Python', 'mock_follow_up': False},
+    ]}
 
 
-@app.route("/voice-demo")
+run.generate_interview_plan = mock_plan
+
+
+@app.route('/voice-demo')
 def voice_demo():
     session.clear()
-    session.update(
-        candidate_name="Voice Test Candidate",
-        interview_plan={"questions": [{
-            "question": "Describe a project you enjoyed. Take your time to explain your approach and what you learned.",
-            "type": "behavioral",
-            "skill": "Communication",
-        }]},
-        current_question=0,
-        interview_history=[],
-    )
-    return redirect("/start-interview")
+    session.update(candidate_name='Voice Test Candidate', interview_plan=mock_plan(),
+                   current_question=0, interview_history=[])
+    return redirect('/start-interview')
 
 
-if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5001, debug=False)
+if __name__ == '__main__':
+    app.run(host='127.0.0.1', port=5001, debug=False, threaded=True)

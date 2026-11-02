@@ -1,11 +1,15 @@
 
 import os
 import tempfile
-import re
+import time
+
+import av
+import numpy as np
 from threading import Lock
 
 from faster_whisper import WhisperModel
 from app.voice_config import voice_config
+from app.services.voice_commands import command_for
 
 _model = None
 _model_lock = Lock()
@@ -33,17 +37,31 @@ def completion_result(segments, settings):
     Decoder scores are conservative gates, not calibrated probabilities of user
     intent. Quoted commands and confident hallucinations can still fool STT.
     """
-    if not segments:
-        return False
-    last = segments[-1]
-    normalized = re.sub(r"[^a-z\s']", "", last.text.lower().replace("’", "'"))
-    normalized = " ".join(normalized.split())
-    commands = {"i'm done", "i am done", "i have finished my answer", "that's the end of my answer"}
-    return (
-        normalized in commands
-        and getattr(last, "avg_logprob", float("-inf")) >= settings["COMPLETION_MIN_LOGPROB"]
-        and getattr(last, "no_speech_prob", 1) <= settings["COMPLETION_MAX_NO_SPEECH_PROB"]
-    )
+    return command_for(segments, settings) == "complete"
+
+
+def decode_bounded(path, limit):
+    """Decode incrementally so compressed uploads cannot expand without bound."""
+    samples, count = [], 0
+    with av.open(path) as container:
+        if not container.streams.audio:
+            raise ValueError("No audio track detected.")
+        resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
+        for frame in container.decode(audio=0):
+            for output in resampler.resample(frame):
+                count += output.samples
+                if count > limit * 16000:
+                    raise ValueError("Audio segment exceeds the duration limit. Use shorter segments.")
+                samples.append(output.to_ndarray().reshape(-1))
+        for output in resampler.resample(None):
+            count += output.samples
+            if count > limit * 16000:
+                raise ValueError("Audio segment exceeds the duration limit.")
+            samples.append(output.to_ndarray().reshape(-1))
+    if not count:
+        raise ValueError("No speech detected.")
+    return np.concatenate(samples).astype(np.float32) / 32768.0
+
 
 
 def transcribe_audio(audio_file, detect_completion=False):
@@ -67,17 +85,32 @@ def transcribe_audio(audio_file, detect_completion=False):
             audio_file.save(temp_file)
             temp_path = temp_file.name
 
+        settings = voice_config()
+        try:
+            audio = decode_bounded(temp_path, settings["MAX_SEGMENT_SECONDS"])
+        except av.error.FFmpegError as error:
+            raise ValueError("Audio could not be decoded. Record again using a supported browser.") from error
         model = get_whisper_model()
+        started = time.perf_counter()
 
         with _transcribe_lock:
             segments, info = model.transcribe(
-                temp_path,
+                audio,
                 language="en",
                 vad_filter=True,
                 beam_size=1
             )
 
             segments = list(segments)
+            if detect_completion:
+                # Silero VAD is built into faster-whisper. Energy alone cannot
+                # arm evaluation: require actual VAD-positive decoded audio and
+                # conservative decoder quality, too. Manual STT stays permissive.
+                if getattr(info, "duration_after_vad", 0) < settings["MIN_VOICED_SECONDS"]:
+                    raise ValueError("No speech detected.")
+                segments = [segment for segment in segments
+                            if getattr(segment, "avg_logprob", float("-inf")) >= settings["STT_MIN_LOGPROB"]
+                            and getattr(segment, "no_speech_prob", 1) <= settings["STT_MAX_NO_SPEECH_PROB"]]
             transcript = " ".join(
                 segment.text.strip()
                 for segment in segments
@@ -91,9 +124,12 @@ def transcribe_audio(audio_file, detect_completion=False):
             "language": info.language
         }
         if detect_completion:
-            result["completion_detected"] = completion_result(segments, voice_config())
-            if result["completion_detected"]:
-                result["transcript"] = " ".join(segment.text.strip() for segment in segments[:-1]).strip()
+            command = command_for(segments, settings)
+            result.update(raw_transcript=transcript, command=command, completion_detected=command == "complete",
+                          speech_detected=True, voiced_seconds=round(getattr(info, "duration_after_vad", 0), 3),
+                          whisper_ms=round((time.perf_counter() - started) * 1000, 2))
+            if command:
+                result["transcript"] = ""
         return result
 
     finally:

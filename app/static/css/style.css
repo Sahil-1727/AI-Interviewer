@@ -1667,3 +1667,34 @@ progress::-moz-progress-bar {
         -webkit-print-color-adjust: exact;
     }
 }
+
+/* The same interview room supports conversational and manual interaction. */
+.conversation-controls {
+    padding: 20px 24px;
+    border: 1px solid var(--input-line);
+    border-radius: 12px;
+    background: #fcfbf7;
+    margin: 16px 0;
+}
+.conversation-start, .conversation-secondary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+.conversation-controls #voice-status {
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 16px 0;
+}
+.conversation-secondary { opacity: .85; }
+.microphone-activity { margin: 12px 0; }
+.microphone-activity meter { display: block; width: 160px; height: 8px; margin-top: 7px; accent-color: var(--copper); }
+body[data-interview-mode=voice] .manual-only,
+body[data-interview-mode=idle] .manual-only { display: none; }
+body[data-interview-mode=voice] .answer-panel textarea,
+body[data-interview-mode=idle] .answer-panel textarea { min-height: 100px; font-size: 14px; }
+body[data-interview-mode=voice] #start-interview:disabled { display: none; }
+body[data-interview-mode=manual] .conversation-start #start-interview { font-size: 12px; padding: 10px 14px; }
+body[data-interview-mode=voice] .answer-heading { margin-bottom: 8px; }
+#thinking-message { font-size: 13px; line-height: 1.6; }

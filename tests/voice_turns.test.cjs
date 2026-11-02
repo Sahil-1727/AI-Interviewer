@@ -9,7 +9,8 @@ const config = {
     LONG_PAUSE_CONFIRMATION_SECONDS: 10, TURN_CONFIRMATION_GRACE_SECONDS: 10,
     AUDIO_SAMPLE_INTERVAL_MS: 50, AUDIO_LEVEL_THRESHOLD: 0.025,
     MIN_ACTIVITY_SECONDS: 0.25, PLAYBACK_SETTLE_SECONDS: 0.6,
-    MAX_CAPTURE_SECONDS: 600, REQUEST_TIMEOUT_SECONDS: 90
+    MAX_CAPTURE_SECONDS: 600, REQUEST_TIMEOUT_SECONDS: 90,
+    SEGMENT_SECONDS: 25, MAX_PENDING_SEGMENTS: 8
 };
 
 function speech(detector, start = 0) {
@@ -62,7 +63,7 @@ class Target {
 function deferred() { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return {promise, resolve, reject}; }
 async function flush() { for (let i = 0; i < 30; i++) await Promise.resolve(); }
 
-function browser({auto = true, level = 0, permission, stt, tts} = {}) {
+function browser({auto = true, level = 0, permission, stt, tts, settings = {}} = {}) {
     let now = 0, timerId = 0;
     const timers = new Map();
     const elements = Object.fromEntries(['answer', 'automatic-voice', 'start-recording', 'stop-recording', 'pause-voice',
@@ -72,7 +73,7 @@ function browser({auto = true, level = 0, permission, stt, tts} = {}) {
     form.querySelector = () => submit;
     elements.answer.form = form;
     elements['automatic-voice'].checked = auto;
-    elements['voice-config'].textContent = JSON.stringify(config);
+    elements['voice-config'].textContent = JSON.stringify({...config, ...settings});
     elements['interview-question'].textContent = 'Example question';
     const document = new Target(), window = new Target();
     document.body = new Target();
@@ -122,7 +123,7 @@ function browser({auto = true, level = 0, permission, stt, tts} = {}) {
                 return {ok: true, blob: async () => new Blob(['tts'])};
             }
             assert.equal(url, '/api/transcribe', 'only STT/TTS endpoints are allowed');
-            const result = stt ? await stt.promise : {transcript: 'An example answer.', completion_detected: false};
+            const result = typeof stt === 'function' ? await stt() : stt ? await stt.promise : {transcript: 'An example answer.', completion_detected: false};
             return {ok: true, status: 200, json: async () => result};
         }
     };
@@ -158,7 +159,7 @@ test('automatic initial silence waits without transcription; manual Done overrid
 
 test('natural pause does not finish; confirmation grace prepares transcript without submitting', async () => {
     const b = browser(); await b.start(); await b.talk(); await b.advance(5000);
-    assert.equal(b.requests.length, 1); assert.equal(b.state(), 'thinking');
+    assert.equal(b.requests.length, 1); assert.equal(b.state(), 'possible_end');
     assert.equal(b.streams[0].track.stopped, false);
     await b.advance(5000);
     assert.equal(b.elements['thinking-prompt'].hidden, false);
@@ -298,4 +299,73 @@ test('Pause closes the pending audio context even before permission resolves', a
     b.elements['pause-voice'].click(); await flush();
     assert.equal(b.contexts[0].state, 'closed');
     permission.resolve(b.stream()); await flush(); assert.ok(b.streams[0].track.stopped);
+});
+
+test('more-time command disarms endpointing until fresh speech begins', async () => {
+    const b = browser({stt: async () => ({transcript: '', command: 'think'})});
+    await b.start(); await b.talk(); await b.advance(5000);
+    assert.equal(b.state(), 'thinking');
+    await b.advance(60000);
+    assert.equal(b.streams[0].track.stopped, false);
+    assert.equal(b.requests.length, 1);
+    assert.equal(b.elements.answer.value, '');
+});
+
+test('failed STT retries the saved audio without rerecording or losing previous text', async () => {
+    let calls = 0;
+    const b = browser({stt: async () => {
+        if (++calls === 1) throw new Error('Temporary STT failure');
+        return {transcript: 'Recovered speech.', completion_detected: false};
+    }});
+    b.elements.answer.value = 'Prior edited text.';
+    await b.start(); await b.talk(); await b.advance(5000);
+    assert.equal(b.state(), 'error'); assert.equal(b.window.InterviewVoice.hasRecovery(), true);
+    await b.window.InterviewVoice.retryTranscription(); await flush();
+    assert.equal(b.state(), 'review');
+    assert.equal(b.elements.answer.value, 'Prior edited text. Recovered speech.');
+    assert.equal(b.streams.length, 1, 'retry uses saved audio, not a fresh mic');
+    assert.equal(b.requests.length, 2);
+});
+
+test('continuous speech rotates bounded segments without ending the answer', async () => {
+    const b = browser(); await b.start(); b.level(.1); await b.advance(26000);
+    assert.equal(b.requests.length, 1);
+    assert.equal(b.state(), 'listening');
+    assert.equal(b.streams[0].track.stopped, false);
+    b.elements['pause-voice'].click(); await flush();
+    assert.equal(b.requests.length, 2);
+    assert.equal(b.state(), 'paused');
+});
+
+test('slow STT queue is bounded and pauses rather than truncating recorded speech', async () => {
+    const pending = deferred();
+    const b = browser({stt: pending, settings: {SEGMENT_SECONDS: 1, MAX_PENDING_SEGMENTS: 2}});
+    await b.start(); b.level(.1); await b.advance(3100);
+    assert.ok(b.streams[0].track.stopped);
+    pending.resolve({transcript: 'A segment.'}); await flush(); await flush();
+    assert.equal(b.state(), 'paused'); assert.equal(b.requests.length, 3);
+    assert.equal(b.elements.answer.value, 'A segment. A segment. A segment.');
+});
+
+test('capture duration limit pauses initial silence without sending an empty turn', async () => {
+    const b = browser({settings: {MAX_CAPTURE_SECONDS: 2}}); await b.start(); await b.advance(2100);
+    assert.equal(b.state(), 'paused'); assert.equal(b.requests.length, 0);
+    assert.ok(b.streams[0].track.stopped);
+});
+
+const {ConversationMachine} = require('../app/static/js/conversation.js');
+test('explicit conversation state machine covers a full loop and rejects invalid jumps', () => {
+    const m = new ConversationMachine();
+    for (const next of ['PREPARING', 'AI_SPEAKING', 'THINKING', 'LISTENING', 'POSSIBLE_END_OF_TURN',
+        'LISTENING', 'TRANSCRIBING', 'EVALUATING', 'PREPARING', 'AI_SPEAKING', 'THINKING',
+        'PAUSED', 'PREPARING', 'THINKING', 'LISTENING', 'TRANSCRIBING', 'EVALUATING', 'COMPLETED']) m.move(next);
+    assert.equal(m.state, 'COMPLETED');
+    assert.throws(() => m.move('LISTENING'), /Invalid conversation transition/);
+});
+
+test('duplicate playback-ended callbacks open the microphone once', async () => {
+    const b = browser(); b.elements['speak-question'].click(); await flush();
+    const ended = b.players[0].onended;
+    ended(); ended(); await b.advance(600);
+    assert.equal(b.streams.length, 1);
 });

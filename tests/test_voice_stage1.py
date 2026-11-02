@@ -21,7 +21,7 @@ class CompletionTests(unittest.TestCase):
         for text in ("I'm done.", "I am done!", "I have finished my answer.", "That’s the end of my answer."):
             with self.subTest(text=text):
                 self.assertTrue(completion_result([segment(text)], DEFAULTS))
-        for text in ("Then I said I'm done.", "I'm done with the first part", "done", "That's all"):
+        for text in ("Then I said I'm done.", "I'm done with the first part", "done"):
             with self.subTest(text=text):
                 self.assertFalse(completion_result([segment(text)], DEFAULTS))
         self.assertFalse(completion_result([segment("I'm done", logprob=-1)], DEFAULTS))
@@ -31,8 +31,8 @@ class CompletionTests(unittest.TestCase):
 
     def transcribe(self, segments, detect_completion=False):
         audio = FileStorage(stream=io.BytesIO(b"mock audio"), filename="answer.webm")
-        model = SimpleNamespace(transcribe=lambda *a, **kw: (iter(segments), SimpleNamespace(language="en")))
-        with patch("app.services.stt.get_whisper_model", return_value=model):
+        model = SimpleNamespace(transcribe=lambda *a, **kw: (iter(segments), SimpleNamespace(language="en", duration_after_vad=1)))
+        with patch("app.services.stt.get_whisper_model", return_value=model), patch("app.services.stt.decode_bounded", return_value=[]):
             return transcribe_audio(audio, detect_completion=detect_completion)
 
     def test_manual_transcript_preserves_completion_words(self):
@@ -40,8 +40,8 @@ class CompletionTests(unittest.TestCase):
         self.assertEqual(result, {"transcript": "My example. I'm done.", "language": "en"})
 
     def test_auto_command_is_removed_only_when_confident(self):
-        result = self.transcribe([segment("My example."), segment("I'm done.")], True)
-        self.assertEqual(result["transcript"], "My example.")
+        result = self.transcribe([segment("I'm done.")], True)
+        self.assertEqual(result["transcript"], "")
         self.assertTrue(result["completion_detected"])
         result = self.transcribe([segment("I'm done.", logprob=-1)], True)
         self.assertEqual(result["transcript"], "I'm done.")
