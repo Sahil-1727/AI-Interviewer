@@ -19,6 +19,7 @@ venv/
 
 # Misc
 *.json
+*.mp3
 
 .env
 venv/

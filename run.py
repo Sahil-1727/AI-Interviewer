@@ -1,3 +1,10 @@
+import asyncio
+import io
+
+from flask import jsonify, send_file
+from app.services.stt import transcribe_audio
+from app.services.tts import synthesize_speech
+
 from flask import Flask, render_template, request, session, redirect, url_for
 from app.services.gemini import (
     generate_interview_plan,
@@ -12,6 +19,7 @@ app = Flask(
     template_folder="app/templates",
     static_folder="app/static"
 )
+app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024
 
 app.secret_key = "dev-secret-key"
 
@@ -198,6 +206,53 @@ def final_scorecard():
         scorecard=scorecard
     )
 
+
+@app.route("/api/transcribe", methods=["POST"])
+def transcribe():
+
+    audio_file = request.files.get("audio")
+
+    try:
+        result = transcribe_audio(audio_file)
+        return jsonify(result), 200
+
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+    except Exception:
+        app.logger.exception("Speech transcription failed")
+        return jsonify({
+            "error": "Audio transcription failed."
+        }), 500
+
+
+@app.route("/api/synthesize", methods=["POST"])
+def synthesize():
+
+    data = request.get_json(silent=True) or {}
+    text = data.get("text", "")
+
+    if not isinstance(text, str) or not text.strip():
+        return jsonify({"error": "Text is required."}), 400
+
+    if len(text) > 2000:
+        return jsonify({"error": "Text is too long."}), 400
+
+    try:
+        audio = asyncio.run(synthesize_speech(text))
+
+        return send_file(
+            io.BytesIO(audio),
+            mimetype="audio/mpeg",
+            as_attachment=False,
+            download_name="question.mp3"
+        )
+
+    except Exception:
+        app.logger.exception("Speech synthesis failed")
+        return jsonify({
+            "error": "Speech synthesis failed."
+        }), 502
 
 
 if __name__ == "__main__":

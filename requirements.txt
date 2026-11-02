@@ -2,3 +2,6 @@ Flask
 google-genai
 python-dotenv
 pypdf
+faster-whisper
+edge-tts
+av==17.1.0

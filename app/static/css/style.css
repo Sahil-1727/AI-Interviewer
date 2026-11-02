@@ -1,0 +1,24 @@
+.camera-section {
+    max-width: 480px;
+    margin: 20px 0;
+}
+
+#candidate-video {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #111827;
+    border-radius: 12px;
+    object-fit: cover;
+    transform: scaleX(-1);
+}
+
+.camera-controls {
+    display: flex;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.camera-controls button {
+    padding: 10px 16px;
+    cursor: pointer;
+}

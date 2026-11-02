@@ -86,7 +86,17 @@ Do not invent experience that is not present in the resume.
         response_text = response_text.replace("```", "")
         response_text = response_text.strip()
 
-    return json.loads(response_text)
+    interview_plan = json.loads(response_text)
+
+    for question in interview_plan["questions"]:
+        question["skill"] = (
+            question.get("skill")
+            or question.get("competency")
+            or question.get("category")
+            or "General Knowledge"
+        )
+
+    return interview_plan
 
 def evaluate_answer(question, answer):
 
@@ -97,7 +107,7 @@ Question:
 {question["question"]}
 
 Skill being evaluated:
-{question["skill"]}
+{question.get("skill") or question.get("competency") or "General Knowledge"}
 
 Question type:
 {question["type"]}

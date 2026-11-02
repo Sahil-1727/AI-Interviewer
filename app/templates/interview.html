@@ -1,59 +1,115 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>AI Interviewer</title>
+ <title>AI Interviewer</title>
 </head>
 
 <body>
 
-    <h1>AI Interviewer</h1>
+ <h1>AI Interviewer</h1>
 
-    <p>
-        Candidate: {{ candidate_name }}
-    </p>
+ <p>
+ Candidate: {{ candidate_name }}
+ </p>
 
-    <hr>
+ <!-- Candidate Camera Section -->
 
-    <p>
-        Question {{ question_number }} of {{ total_questions }}
-    </p>
+<div class="camera-section">
 
-    <h2>{{ question.question }}</h2>
+    <h3>Candidate Camera</h3>
 
-    <p>
-        <strong>Skill:</strong> {{ question.skill }}
-    </p>
+    <video
+        id="candidate-video"
+        autoplay
+        muted
+        playsinline
+    ></video>
 
-    <p>
-        <strong>Type:</strong> {{ question.type }}
-    </p>
+    <div class="camera-controls">
 
-    <br>
-
-    <form method="POST"
-      action="{% if question.type == 'follow_up' %}/submit-follow-up{% else %}/submit-answer{% endif %}">
-
-        <label for="answer">Your Answer</label>
-        <br>
-
-        <textarea
-            id="answer"
-            name="answer"
-            rows="10"
-            cols="70"
-            required
-        ></textarea>
-
-        <br><br>
-
-        <button type="submit">
-            Submit Answer
+        <button type="button" id="start-camera">
+            Turn On Camera
         </button>
 
-    </form>
+        <button type="button" id="stop-camera" disabled>
+            Turn Off Camera
+        </button>
+
+    </div>
+
+    <p id="camera-status" role="status">
+        Camera is off
+    </p>
+
+</div>
+
+ <hr>
+
+ <p>
+ Question {{ question_number }} of {{ total_questions }}
+ </p>
+
+ <h2 id="interview-question">{{ question.question }}</h2>
+
+<button type="button" id="speak-question">
+ 🔊 Listen to Question
+</button>
+
+<button type="button" id="stop-speaking">
+ Stop Audio
+</button>
+
+ <p>
+ <strong>Skill:</strong> {{ question.skill }}
+ </p>
+
+ <p>
+ <strong>Type:</strong> {{ question.type }}
+ </p>
+
+ <br>
+
+ <form method="POST"
+ action="{% if question.type == 'follow_up' %}/submit-follow-up{% else %}/submit-answer{% endif %}">
+
+ <hr>
+
+ <label for="answer">Your Answer</label>
+ <br>
+
+ <textarea
+ id="answer"
+ name="answer"
+ rows="10"
+ cols="70"
+ required
+ ></textarea>
+
+ <div>
+ <button type="button" id="start-recording">
+ 🎤 Start Recording
+ </button>
+
+ <button type="button" id="stop-recording" disabled>
+ ⏹ Stop Recording
+ </button>
+
+ <p id="voice-status">Voice ready</p>
+</div>
+
+ <br><br>
+
+ <button type="submit">
+ Submit Answer
+ </button>
+
+ </form>
+<script src="{{ url_for('static', filename='js/voice.js') }}"></script>
+
+<script src="{{ url_for('static', filename='js/camera.js') }}"></script>
 
 </body>
 </html>
