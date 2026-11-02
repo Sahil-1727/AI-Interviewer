@@ -32,7 +32,7 @@ def get_whisper_model():
 
 
 def completion_result(segments, settings):
-    """Only an isolated final Whisper segment may be a completion command.
+    """Only a confident, standalone uploaded utterance may be a command.
 
     Decoder scores are conservative gates, not calibrated probabilities of user
     intent. Quoted commands and confident hallucinations can still fool STT.

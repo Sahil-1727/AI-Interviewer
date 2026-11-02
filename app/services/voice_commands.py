@@ -20,7 +20,6 @@ def command_for(segments, settings):
                  and getattr(last, 'no_speech_prob', 1) <= settings['COMPLETION_MAX_NO_SPEECH_PROB'])
     if not confident:
         return None
-    final = normalize(last.text)
     whole = normalize(' '.join(segment.text for segment in segments))
     for command, phrases in COMMANDS.items():
         # A command must occupy the WHOLE uploaded utterance. Never remove an
