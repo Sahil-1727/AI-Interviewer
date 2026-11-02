@@ -1,5 +1,7 @@
 import asyncio
 import io
+import os
+import time
 from pathlib import Path
 
 from cachelib.file import FileSystemCache
@@ -16,6 +18,9 @@ from app.services.gemini import (
 )
 from app.services.resume_parser import extract_resume_text
 from app.voice_config import voice_config
+from app.services.conversation import ConversationService, ConversationError
+from app.services.interview_flow import advance, copy_to_session
+from app.routes.conversation import conversation_bp
 
 
 app = Flask(
@@ -25,11 +30,11 @@ app = Flask(
 )
 app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024
 
-app.secret_key = "dev-secret-key"
+app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key")
 
 # Keep growing interview plans and history on the server. The browser cookie
 # contains only a session ID, so submitting later answers cannot exceed 4 KB.
-session_directory = Path(app.instance_path) / "sessions"
+session_directory = Path(os.getenv("INTERVIEW_SESSION_DIR", str(Path(app.instance_path) / "sessions")))
 session_directory.mkdir(parents=True, exist_ok=True)
 app.config.update(
     SESSION_TYPE="cachelib",
@@ -37,6 +42,29 @@ app.config.update(
     SESSION_PERMANENT=False,
 )
 Session(app)
+app.extensions["conversation"] = ConversationService(
+    os.getenv("CONVERSATION_STATE_DIR", str(Path(app.instance_path) / "conversations")),
+    lambda question, answer: evaluate_answer(question, answer),
+    lambda candidate, history: generate_final_scorecard(candidate, history),
+    voice_config(),
+)
+app.register_blueprint(conversation_bp)
+
+
+def sync_voice_session(manual=False):
+    identity = session.get("voice_interview_id")
+    if identity:
+        service = app.extensions["conversation"]
+        state = service.control(identity, "manual") if manual else service.get(identity)
+        copy_to_session(state, session)
+        if manual:
+            session.pop("voice_interview_id", None)
+        return state
+
+
+@app.errorhandler(ConversationError)
+def conversation_error(error):
+    return jsonify(error=str(error), recoverable=True), error.status
 
 
 @app.context_processor
@@ -80,6 +108,7 @@ def home():
 @app.route("/start-interview")
 def start_interview():
 
+    voice_state = sync_voice_session()
     interview_plan = session.get("interview_plan")
 
     if not interview_plan:
@@ -89,6 +118,10 @@ def start_interview():
     current_question = session.get("current_question", 0)
 
     if current_question >= len(questions):
+        if voice_state and voice_state["status"] != "completed":
+            # A failed/in-flight scorecard must remain recoverable after refresh.
+            return render_template("interview.html", candidate_name=session.get("candidate_name"),
+                                   question=questions[-1], question_number=len(questions), total_questions=len(questions))
         return redirect(url_for("final_scorecard"))
 
     question = questions[current_question]
@@ -104,6 +137,8 @@ def start_interview():
 @app.route("/submit-answer", methods=["POST"])
 def submit_answer():
 
+    if session.get("voice_interview_id"):
+        return "Switch to manual mode before using the answer form.", 409
     answer = request.form.get("answer")
 
     interview_plan = session.get("interview_plan")
@@ -119,52 +154,19 @@ def submit_answer():
     if session.get("current_follow_up"):
         return redirect(url_for("follow_up"))
 
-    question = interview_plan["questions"][current_question]
-
-    evaluation = evaluate_answer(
-        question,
-        answer
-    )
-    history = session.get("interview_history", [])
-
-    history.append({
-    "question": question["question"],
-    "skill": question["skill"],
-    "type": question["type"],
-    "answer": answer,
-    "evaluation": evaluation
-    })
-
-    session["interview_history"] = history
-
-    print("Candidate Answer:")
-    print(answer)
-
-    print("Evaluation:")
-    print(evaluation)
-
-    if evaluation["follow_up_needed"]:
-
-        follow_up_question = {
-            "type": "follow_up",
-            "skill": question["skill"],
-            "question": evaluation["follow_up_question"]
-        }
-
-        session["current_follow_up"] = follow_up_question
-
+    sync_voice_session(manual=True)
+    try:
+        next_question = advance(session, answer, evaluate_answer)
+    except ValueError as error:
+        return str(error), 400
+    if session.get("current_follow_up"):
         return redirect(url_for("follow_up"))
-
-    session["current_question"] = current_question + 1
-
-    if session["current_question"] >= len(interview_plan["questions"]):
-        return redirect(url_for("final_scorecard"))
-
-    return redirect(url_for("start_interview"))
+    return redirect(url_for("start_interview" if next_question else "final_scorecard"))
 
 @app.route("/follow-up")
 def follow_up():
 
+    sync_voice_session()
     follow_up_question = session.get("current_follow_up")
 
     if not follow_up_question:
@@ -180,6 +182,8 @@ def follow_up():
 @app.route("/submit-follow-up", methods=["POST"])
 def submit_follow_up():
 
+    if session.get("voice_interview_id"):
+        return "Switch to manual mode before using the answer form.", 409
     answer = request.form.get("answer")
 
     follow_up_question = session.get("current_follow_up")
@@ -187,48 +191,29 @@ def submit_follow_up():
     if not follow_up_question:
         return redirect(url_for("start_interview"))
 
-    history = session.get("interview_history", [])
+    sync_voice_session(manual=True)
+    try:
+        next_question = advance(session, answer, evaluate_answer)
+    except ValueError as error:
+        return str(error), 400
+    return redirect(url_for("start_interview" if next_question else "final_scorecard"))
 
-    if history:
-
-        history[-1]["follow_up"] = {
-            "question": follow_up_question["question"],
-            "answer": answer
-        }
-
-    session["interview_history"] = history
-
-    print("Follow-up Question:")
-    print(follow_up_question["question"])
-
-    print("Follow-up Answer:")
-    print(answer)
-
-    session.pop("current_follow_up", None)
-
-    current_question = session.get("current_question", 0)
-
-    session["current_question"] = current_question + 1
-
-    interview_plan = session.get("interview_plan")
-
-    if session["current_question"] >= len(interview_plan["questions"]):
-        return redirect(url_for("final_scorecard"))
-
-    return redirect(url_for("start_interview"))
 
 @app.route("/final-scorecard")
 def final_scorecard():
 
+    state = sync_voice_session()
+    if state and state["status"] != "completed":
+        return redirect(url_for("start_interview"))
     interview_history = session.get("interview_history", [])
 
     if not interview_history:
         return redirect(url_for("home"))
 
-    scorecard = generate_final_scorecard(
-        session.get("candidate_name"),
-        interview_history
-    )
+    scorecard = session.get("final_scorecard")
+    if not scorecard:
+        scorecard = generate_final_scorecard(session.get("candidate_name"), interview_history)
+        session["final_scorecard"] = scorecard
 
     return render_template(
         "scorecard.html",
@@ -241,12 +226,16 @@ def final_scorecard():
 def transcribe():
 
     audio_file = request.files.get("audio")
+    started = time.perf_counter()
 
     try:
         if request.form.get("detect_completion") == "true":
             result = transcribe_audio(audio_file, detect_completion=True)
         else:
             result = transcribe_audio(audio_file)
+        elapsed = (time.perf_counter() - started) * 1000
+        result["transcription_ms"] = round(elapsed, 2)
+        app.logger.info("voice_timing stage=transcription ms=%.2f", elapsed)
         return jsonify(result), 200
 
     except ValueError as error:
@@ -272,14 +261,19 @@ def synthesize():
         return jsonify({"error": "Text is too long."}), 400
 
     try:
-        audio = asyncio.run(synthesize_speech(text))
-
-        return send_file(
+        started = time.perf_counter()
+        audio = asyncio.run(asyncio.wait_for(synthesize_speech(text), timeout=voice_config()["TTS_TIMEOUT_SECONDS"]))
+        elapsed = (time.perf_counter() - started) * 1000
+        app.logger.info("voice_timing stage=tts ms=%.2f", elapsed)
+        response = send_file(
             io.BytesIO(audio),
             mimetype="audio/mpeg",
             as_attachment=False,
             download_name="question.mp3"
         )
+        response.headers["Server-Timing"] = f"tts;dur={elapsed:.2f}"
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     except Exception:
         app.logger.exception("Speech synthesis failed")
@@ -289,4 +283,4 @@ def synthesize():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=os.getenv("FLASK_DEBUG") == "1", threaded=True)

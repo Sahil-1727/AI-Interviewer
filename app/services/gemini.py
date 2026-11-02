@@ -1,11 +1,20 @@
 import os
 import json
+from functools import lru_cache
 from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 load_dotenv()
 
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+@lru_cache(maxsize=1)
+def get_client():
+    # A timeout/connection failure has an ambiguous external outcome. Disable
+    # SDK retries; the conversation journal owns deliberate recovery attempts.
+    return genai.Client(api_key=os.getenv("GEMINI_API_KEY"), http_options=types.HttpOptions(
+        timeout=int(float(os.getenv("GEMINI_TIMEOUT_SECONDS", "60")) * 1000),
+        retry_options=types.HttpRetryOptions(attempts=1),
+    ))
 
 
 def generate_interview_plan(candidate_name, job_description, resume):
@@ -73,8 +82,8 @@ Do not invent experience that is not present in the resume.
 """
 
 
-    response = client.models.generate_content(
-        model="gemini-3.5-flash-lite",
+    response = get_client().models.generate_content(
+        model=os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"),
         contents=prompt
     )
 
@@ -164,8 +173,8 @@ Rules:
    if the technical meaning is clear.
 """
 
-    response = client.models.generate_content(
-        model="gemini-3.5-flash-lite",
+    response = get_client().models.generate_content(
+        model=os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"),
         contents=prompt
     )
 
@@ -252,8 +261,8 @@ Communication, etc., depending on what was actually assessed.
 9. Keep the final summary concise and professional.
 """
 
-    response = client.models.generate_content(
-        model="gemini-3.5-flash-lite",
+    response = get_client().models.generate_content(
+        model=os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"),
         contents=prompt
     )
 
