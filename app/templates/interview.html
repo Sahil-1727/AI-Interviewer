@@ -1,115 +1,143 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
- <meta charset="UTF-8">
- <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
- <title>AI Interviewer</title>
-</head>
-
-<body>
-
- <h1>AI Interviewer</h1>
-
- <p>
- Candidate: {{ candidate_name }}
- </p>
-
- <!-- Candidate Camera Section -->
-
-<div class="camera-section">
-
-    <h3>Candidate Camera</h3>
-
-    <video
-        id="candidate-video"
-        autoplay
-        muted
-        playsinline
-    ></video>
-
-    <div class="camera-controls">
-
-        <button type="button" id="start-camera">
-            Turn On Camera
-        </button>
-
-        <button type="button" id="stop-camera" disabled>
-            Turn Off Camera
-        </button>
-
+{% extends 'base.html' %}
+{% block title %}Your interview · AI Interviewer{% endblock %}
+{% block interview_step %}is-current{% endblock %}
+{% block body_class %}interview-page{% endblock %}
+{% block content %}
+{% set is_followup = question.type == 'follow_up' or question_number == 'Follow-up' %}
+{% set plan_questions = session.get('interview_plan', {}).get('questions', []) %}
+{% set total = total_questions if total_questions is number else plan_questions|length %}
+{% set current = question_number if question_number is number else session.get('current_question', 0) + 1 %}
+{% set completed = current - 1 %}
+<main id="main" class="workspace page-width">
+    <div class="workspace-heading">
+        <div>
+            <p class="eyebrow">THE INTERVIEW ROOM</p>
+            <h1>A conversation about <em>you.</em></h1>
+        </div>
+        <div class="candidate-chip">
+            <span class="candidate-initial" aria-hidden="true">{{ (candidate_name or 'Y')[:1]|upper }}</span>
+            <span>
+                <small>CANDIDATE</small>
+                <strong>{{ candidate_name }}</strong>
+            </span>
+        </div>
     </div>
-
-    <p id="camera-status" role="status">
-        Camera is off
-    </p>
-
-</div>
-
- <hr>
-
- <p>
- Question {{ question_number }} of {{ total_questions }}
- </p>
-
- <h2 id="interview-question">{{ question.question }}</h2>
-
-<button type="button" id="speak-question">
- 🔊 Listen to Question
-</button>
-
-<button type="button" id="stop-speaking">
- Stop Audio
-</button>
-
- <p>
- <strong>Skill:</strong> {{ question.skill }}
- </p>
-
- <p>
- <strong>Type:</strong> {{ question.type }}
- </p>
-
- <br>
-
- <form method="POST"
- action="{% if question.type == 'follow_up' %}/submit-follow-up{% else %}/submit-answer{% endif %}">
-
- <hr>
-
- <label for="answer">Your Answer</label>
- <br>
-
- <textarea
- id="answer"
- name="answer"
- rows="10"
- cols="70"
- required
- ></textarea>
-
- <div>
- <button type="button" id="start-recording">
- 🎤 Start Recording
- </button>
-
- <button type="button" id="stop-recording" disabled>
- ⏹ Stop Recording
- </button>
-
- <p id="voice-status">Voice ready</p>
-</div>
-
- <br><br>
-
- <button type="submit">
- Submit Answer
- </button>
-
- </form>
+    <div class="interview-grid">
+        <div class="conversation-column">
+            <section class="question-panel" aria-labelledby="interview-question">
+                <div class="interviewer-band">
+                    <div class="interviewer-identity">
+                        <div class="voice-symbol" aria-hidden="true">
+                            <i></i>
+                            <i></i>
+                            <i></i>
+                            <i></i>
+                            <i></i>
+                        </div>
+                        <span>
+                            <strong>Your AI interviewer</strong>
+                            <small>A thoughtful question. Room to think.</small>
+                        </span>
+                    </div>
+                    <span id="interviewer-state" class="state-pill" role="status">Ready</span>
+                </div>
+                <div class="question-content">
+                    <div class="question-meta">
+                        <span class="eyebrow">
+                            {% if is_followup %}FOLLOW-UP QUESTION{% else %}QUESTION {{ '%02d'|format(current) }}{% if total %}
+                            <span class="muted">/ {{ '%02d'|format(total) }}</span>
+                            {% endif %}{% endif %}
+                        </span>
+                        <span class="skill-tag">{{ question.skill }}</span>
+                    </div>
+                    {% if is_followup %}
+                    <p class="followup-note">Let’s explore your last answer a little further.</p>
+                    {% endif %}
+                    <h2 id="interview-question">{{ question.question }}</h2>
+                    <div class="question-bottom">
+                        <div class="audio-controls">
+                            <button type="button" id="speak-question" class="button button-text">{{ icon('speaker') }} Listen to question</button>
+                            <button type="button" id="stop-speaking" class="button button-text muted" disabled>{{ icon('stop') }} Stop audio</button>
+                        </div>
+                        <span class="tiny-label question-type">{{ question.type|replace('_', ' ') }}</span>
+                    </div>
+                </div>
+            </section>
+            <form method="POST" id="answer-form" data-submit-form action="{% if question.type == 'follow_up' %}/submit-follow-up{% else %}/submit-answer{% endif %}" class="answer-panel">
+                <div class="answer-heading">
+                    <label for="answer">Your answer</label>
+                    <span class="tiny-label">TYPE OR USE YOUR MICROPHONE</span>
+                </div>
+                <textarea id="answer" name="answer" rows="6" placeholder="Take a moment to think, then make it your own…" required aria-describedby="answer-help voice-status"></textarea>
+                <div class="recording-toolbar">
+                    <div class="recording-controls">
+                        <button type="button" id="start-recording" class="button button-secondary">{{ icon('mic') }} Record answer</button>
+                        <button type="button" id="stop-recording" class="button button-secondary" disabled>{{ icon('stop') }} Stop recording</button>
+                    </div>
+                    <p id="voice-status" role="status" aria-live="polite">Voice ready</p>
+                </div>
+                <div class="answer-submit">
+                    <p id="answer-help">Your transcript stays editable.<br>Review your answer before submitting.</p>
+                    <button type="submit" class="button button-primary"><span data-button-label>Submit answer</span>{{ icon('arrow') }}<span class="spinner" aria-hidden="true"></span></button>
+                </div>
+                <div class="submit-status" role="status" hidden>
+                    <strong>Considering your answer…</strong>
+                    <span>Preparing the next step in your interview.</span>
+                </div>
+            </form>
+        </div>
+        <aside class="interview-sidebar" aria-label="Your session">
+            <section class="camera-section">
+                <div class="section-heading">
+                    <h2>Your space</h2>
+                    <span class="tiny-label">LIVE PREVIEW</span>
+                </div>
+                <div class="camera-frame" id="camera-frame">
+                    <video id="candidate-video" autoplay muted playsinline aria-label="Your live camera preview"></video>
+                    <div class="camera-placeholder" id="camera-placeholder">
+                        {{ icon('camera') }}
+                        <strong>Come as you are.</strong>
+                        <span>Turn on your camera to see yourself.</span>
+                    </div>
+                    <span class="preview-label">
+                        YOU
+                        <span aria-hidden="true">·</span>
+                        PREVIEW ONLY
+                    </span>
+                </div>
+                <div class="camera-controls">
+                    <button type="button" id="start-camera" class="button button-secondary">{{ icon('camera') }} Camera on</button>
+                    <button type="button" id="stop-camera" class="button button-secondary" disabled>Camera off</button>
+                </div>
+                <p id="camera-status" role="status">Camera is off</p>
+                <p class="camera-privacy">{{ icon('shield') }} Your video is never recorded, stored, or analyzed. Camera access is optional; allow it in your browser to preview.</p>
+            </section>
+            <section class="session-progress">
+                <div class="section-heading">
+                    <h2>Making progress</h2>
+                    <span class="tiny-label">{% if total %}{{ completed }} / {{ total }}{% else %}IN PROGRESS{% endif %}</span>
+                </div>
+                {% if total %}
+                <progress value="{{ completed }}" max="{{ total }}" aria-label="Main questions completed">
+                    {{ completed }} of {{ total }}
+                </progress>
+                {% endif %}
+                <p>{% if is_followup %}A closer look at your experience. Your main question progress continues after this follow-up.{% else %}One question at a time. Take the space you need to give a considered answer.{% endif %}</p>
+            </section>
+            <div class="room-note">
+                <span class="eyebrow">A SMALL REMINDER</span>
+                <p>Specific examples<br>tell the best stories.</p>
+                <span>
+                    Share the situation, your approach,
+                    <br>
+                    and what you learned.
+                </span>
+            </div>
+        </aside>
+    </div>
+</main>
+{% endblock %}
+{% block scripts %}
 <script src="{{ url_for('static', filename='js/voice.js') }}"></script>
-
 <script src="{{ url_for('static', filename='js/camera.js') }}"></script>
-
-</body>
-</html>
+{% endblock %}

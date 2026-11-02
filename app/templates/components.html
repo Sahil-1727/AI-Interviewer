@@ -1,0 +1,15 @@
+{% macro icon(name, class='') -%}
+<svg class="icon {{ class }}" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+{% if name == 'arrow' %}<path d="M5 12h14M13 6l6 6-6 6"/>
+{% elif name == 'upload' %}<path d="M12 16V3m-5 5 5-5 5 5M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>
+{% elif name == 'file' %}<path d="M14 2H5v20h14V7zM14 2v6h5M8 13h8m-8 4h5"/>
+{% elif name == 'mic' %}<rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/>
+{% elif name == 'speaker' %}<path d="m11 4-6 5H2v6h3l6 5zM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>
+{% elif name == 'stop' %}<rect x="6" y="6" width="12" height="12" rx="1"/>
+{% elif name == 'camera' %}<rect x="3" y="6" width="12" height="12" rx="2"/><path d="m15 10 6-3v10l-6-3"/>
+{% elif name == 'check' %}<path d="m5 12 4 4L19 6"/>
+{% elif name == 'shield' %}<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6z"/><path d="m8 12 3 3 5-6"/>
+{% elif name == 'print' %}<path d="M6 9V3h12v6M6 17H3V9h18v8h-3M6 14h12v7H6zM17 11h1"/>
+{% endif %}
+</svg>
+{%- endmacro %}

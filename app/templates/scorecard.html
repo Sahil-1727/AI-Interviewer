@@ -1,100 +1,122 @@
-<!DOCTYPE html>
-<html lang="en">
-
-<head>
-
-    <meta charset="UTF-8">
-
-    <meta name="viewport"
-          content="width=device-width, initial-scale=1.0">
-
-    <title>Interview Scorecard</title>
-
-</head>
-
-<body>
-
-    <h1>AI Interview Scorecard</h1>
-
-    <h2>{{ candidate_name }}</h2>
-
-    <hr>
-
-    <h2>Overall Score</h2>
-
-    <h1>{{ scorecard.overall_score }}/10</h1>
-
-    <hr>
-
-    <h2>Recommendation</h2>
-
-    <h3>{{ scorecard.recommendation }}</h3>
-
-    <hr>
-
-    <h2>Competency Scores</h2>
-
-    {% for competency in scorecard.competency_scores %}
-
-        <h3>
-            {{ competency.competency }}
-            — {{ competency.score }}/10
-        </h3>
-
-        <p>
-            {{ competency.summary }}
-        </p>
-
-    {% endfor %}
-
-    <hr>
-
-    <h2>Strengths</h2>
-
-    <ul>
-
-        {% for strength in scorecard.strengths %}
-
-            <li>{{ strength }}</li>
-
-        {% endfor %}
-
-    </ul>
-
-    <h2>Areas to Improve</h2>
-
-    <ul>
-
-        {% for area in scorecard.areas_to_improve %}
-
-            <li>{{ area }}</li>
-
-        {% endfor %}
-
-    </ul>
-
-    <hr>
-
-    <h2>Communication Assessment</h2>
-
-    <p>
-        {{ scorecard.communication_assessment }}
-    </p>
-
-    <h2>Technical Assessment</h2>
-
-    <p>
-        {{ scorecard.technical_assessment }}
-    </p>
-
-    <hr>
-
-    <h2>Final Summary</h2>
-
-    <p>
-        {{ scorecard.final_summary }}
-    </p>
-
-</body>
-
-</html>
+{% extends 'base.html' %}
+{% block title %}Your interview insights · AI Interviewer{% endblock %}
+{% block report_step %}is-current{% endblock %}
+{% block body_class %}report-page{% endblock %}
+{% block content %}
+<main id="main" class="report page-width">
+    <div class="report-heading">
+        <div>
+            <p class="eyebrow">THE NEXT STEP IS YOURS</p>
+            <h1>Your interview <em>insights.</em></h1>
+            <p class="intro-copy">A structured overview of your performance, strengths,<br class="desktop-break"> and opportunities for improvement.</p>
+        </div>
+        <button type="button" id="print-report" class="button button-secondary">{{ icon('print') }} Print report</button>
+    </div>
+    <div class="report-byline">
+        <span>
+            PREPARED FOR
+            <strong>{{ candidate_name }}</strong>
+        </span>
+        <span>PERSONALIZED INTERVIEW REPORT</span>
+    </div>
+    <section class="performance-overview" aria-labelledby="overall-heading">
+        <div class="overall-score">
+            <h2 id="overall-heading" class="eyebrow">OVERALL PERFORMANCE</h2>
+            <div class="score-value">
+                {{ scorecard.overall_score }}
+                <span>/ 10</span>
+            </div>
+            <progress value="{{ scorecard.overall_score }}" max="10" aria-label="Overall score">
+                {{ scorecard.overall_score }} out of 10
+            </progress>
+            <span class="score-caption">Your interview, in perspective.</span>
+        </div>
+        <div class="overall-summary">
+            <p class="eyebrow">RECOMMENDATION</p>
+            <h2>{{ scorecard.recommendation }}</h2>
+            <p>{{ scorecard.final_summary }}</p>
+        </div>
+    </section>
+    <div class="report-columns">
+        <section class="competency-section" aria-labelledby="competency-heading">
+            <div class="report-section-heading">
+                <span class="section-index">01</span>
+                <h2 id="competency-heading">The skills you brought.</h2>
+            </div>
+            <p class="muted">A closer look at each competency assessed.</p>
+            <div class="competency-list">
+                {% for competency in scorecard.competency_scores %}
+                <article class="competency">
+                    <div class="competency-heading">
+                        <h3>{{ competency.competency }}</h3>
+                        <span>
+                            <strong>{{ competency.score }}</strong>
+                            / 10
+                        </span>
+                    </div>
+                    <progress value="{{ competency.score }}" max="10" aria-label="{{ competency.competency }} score">
+                        {{ competency.score }} out of 10
+                    </progress>
+                    <p>{{ competency.summary }}</p>
+                </article>
+                {% endfor %}
+            </div>
+        </section>
+        <div class="insight-column">
+            <section class="insight-section" aria-labelledby="strengths-heading">
+                <div class="report-section-heading">
+                    <span class="section-index">02</span>
+                    <h2 id="strengths-heading">What’s working.</h2>
+                </div>
+                <span class="tiny-label">YOUR STRENGTHS</span>
+                <ul class="insight-list strengths-list">
+                    {% for strength in scorecard.strengths %}
+                    <li>
+                        {{ icon('check') }}
+                        <span>{{ strength }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </section>
+            <section class="insight-section" aria-labelledby="improve-heading">
+                <div class="report-section-heading">
+                    <span class="section-index">03</span>
+                    <h2 id="improve-heading">Where to grow.</h2>
+                </div>
+                <span class="tiny-label">AREAS TO IMPROVE</span>
+                <ul class="insight-list">
+                    {% for area in scorecard.areas_to_improve %}
+                    <li>
+                        <span class="list-dash" aria-hidden="true">↗</span>
+                        <span>{{ area }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </section>
+        </div>
+    </div>
+    <section class="assessment-section" aria-labelledby="assessment-heading">
+        <div class="report-section-heading">
+            <span class="section-index">04</span>
+            <h2 id="assessment-heading">Beyond the score.</h2>
+        </div>
+        <div class="assessment-grid">
+            <article>
+                <h3>Technical assessment</h3>
+                <p>{{ scorecard.technical_assessment }}</p>
+            </article>
+            <article>
+                <h3>Communication assessment</h3>
+                <p>{{ scorecard.communication_assessment }}</p>
+            </article>
+        </div>
+    </section>
+    <div class="report-end">
+        <div>
+            <h2>Keep the momentum.</h2>
+            <p>Take these insights into your next conversation.</p>
+        </div>
+        <a class="button button-primary" href="{{ url_for('home') }}">Start a new interview {{ icon('arrow') }}</a>
+    </div>
+</main>
+{% endblock %}

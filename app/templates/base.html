@@ -1,0 +1,27 @@
+{% from 'components.html' import icon %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#f5f3ed">
+    <title>{% block title %}AI Interviewer{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/ui.js') }}" defer></script>
+</head>
+<body class="{% block body_class %}{% endblock %}">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+        <a class="brand" href="{{ url_for('home') }}" aria-label="AI Interviewer home"><span class="brand-mark" aria-hidden="true">i<span>·</span></span> AI Interviewer</a>
+        <nav aria-label="Your interview journey" class="journey">
+            <span class="{% block setup_step %}{% endblock %}"><b>01</b> Setup</span><span class="journey-line" aria-hidden="true"></span>
+            <span class="{% block interview_step %}{% endblock %}"><b>02</b> Interview</span><span class="journey-line" aria-hidden="true"></span>
+            <span class="{% block report_step %}{% endblock %}"><b>03</b> Insights</span>
+        </nav>
+        <span class="header-note">A little practice. A lot of possibility.</span>
+    </header>
+    {% block content %}{% endblock %}
+    <footer class="site-footer"><span>AI Interviewer <span class="footer-dot">/</span> Practice with purpose.</span><span>Personalized questions. Thoughtful feedback.</span></footer>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

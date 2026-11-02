@@ -1,52 +1,79 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Interviewer</title>
-</head>
-
-<body>
-
-    <h1>AI Interviewer</h1>
-
-    <form method="POST" enctype="multipart/form-data">
-
-        <label>Candidate Name</label>
-        <br>
-        <input type="text" name="candidate_name" required>
-
-        <br><br>
-
-        <label>Job Description</label>
-        <br>
-        <textarea name="job_description" rows="10" cols="60" required></textarea>
-
-        <br><br>
-
-  <label>Resume</label>
-<br>
-
-<input
-    type="file"
-    name="resume"
-    accept=".pdf"
-    required
->
-
-        <br><br>
-
-        <button type="submit">Create Interview</button>
-
-    </form>
-
-{% if interview_plan %}
-    <hr>
-
-    <h2>Generated Interview Plan</h2>
-
-    <pre>{{ interview_plan }}</pre>
-{% endif %}
-
-</body>
-</html>
+{% extends 'base.html' %}
+{% block title %}Prepare your next chapter · AI Interviewer{% endblock %}
+{% block setup_step %}is-current{% endblock %}
+{% block body_class %}setup-page{% endblock %}
+{% block content %}
+<main id="main" class="setup-layout page-width">
+    <section class="setup-intro" aria-labelledby="setup-title">
+        <p class="eyebrow"><span class="small-rule"></span> YOUR NEXT CHAPTER</p>
+        <h1 id="setup-title">Your next interview<br>starts <em>here.</em></h1>
+        <p class="intro-copy">Practice with an AI interviewer that adapts to your experience, skills, and the role you’re preparing for.</p>
+        <ol class="process-list">
+            <li>
+                <span class="step-number">01</span>
+                <div>
+                    <h2>Bring your experience.</h2>
+                    <p>Share your resume and the role you have in mind.</p>
+                </div>
+            </li>
+            <li>
+                <span class="step-number">02</span>
+                <div>
+                    <h2>Find your rhythm.</h2>
+                    <p>Answer tailored questions, by voice or in writing.</p>
+                </div>
+            </li>
+            <li>
+                <span class="step-number">03</span>
+                <div>
+                    <h2>Leave with perspective.</h2>
+                    <p>Get a clear view of your strengths and what’s next.</p>
+                </div>
+            </li>
+        </ol>
+        <div class="intro-footnote">
+            {{ icon('mic') }}
+            <span>
+                Your words, your pace.
+                <br>
+                <strong>A focused space to prepare.</strong>
+            </span>
+        </div>
+    </section>
+    <section class="setup-panel" aria-labelledby="form-title">
+        <div class="panel-heading">
+            <span class="eyebrow">LET’S GET ACQUAINTED</span>
+            <span class="tiny-label">01 / SETUP</span>
+        </div>
+        <h2 id="form-title">Make it personal.</h2>
+        <p class="muted">A little context makes for a better conversation.</p>
+        <form method="POST" action="{{ url_for('home') }}" enctype="multipart/form-data" id="setup-form" data-submit-form>
+            <div class="field">
+                <label for="candidate-name">Candidate name <span>Required</span></label>
+                <input type="text" id="candidate-name" name="candidate_name" placeholder="Your full name" autocomplete="name" required>
+            </div>
+            <div class="field">
+                <label for="job-description">Job description <span>Required</span></label>
+                <textarea id="job-description" name="job_description" rows="5" placeholder="Paste the responsibilities, skills, and requirements for your target role…" aria-describedby="job-help" required></textarea>
+                <p id="job-help" class="field-help">We’ll tailor your questions to this role.</p>
+            </div>
+            <div class="field">
+                <label for="resume">Resume <span>PDF only</span></label>
+                <div class="upload-area" id="upload-area">
+                    {{ icon('upload') }}
+                    <strong id="file-label">Choose your resume</strong>
+                    <span id="file-detail">or drag and drop a PDF here</span>
+                    <input type="file" id="resume" name="resume" accept=".pdf,application/pdf" required aria-describedby="file-detail upload-error">
+                </div>
+                <p id="upload-error" class="field-error" role="alert" hidden></p>
+            </div>
+            <button class="button button-primary button-full" type="submit"><span data-button-label>Create My Interview</span>{{ icon('arrow') }}<span class="spinner" aria-hidden="true"></span></button>
+            <div class="submit-status" role="status" hidden>
+                <strong>Preparing your personalized interview…</strong>
+                <span>Analyzing your resume and job requirements.</span>
+            </div>
+            <p class="form-footnote">Personalized questions. Adaptive follow-ups. Actionable feedback.</p>
+        </form>
+    </section>
+</main>
+{% endblock %}
