@@ -150,12 +150,13 @@ class ConversationService:
 
     def accept(self, identity, payload, retry=False):
         turn_id, request_id, answer = payload.get("turn_id"), payload.get("request_id"), payload.get("answer")
+        unanswered = payload.get("unanswered") is True and not retry
         if not isinstance(request_id, str) or not IDENTIFIER.fullmatch(request_id):
             raise ConversationError("A unique request_id is required.", 400)
-        if not isinstance(answer, str) or not answer.strip() or len(answer) > self.settings["MAX_ANSWER_CHARACTERS"]:
+        if not isinstance(answer, str) or (not answer.strip() and not unanswered and not retry) or (unanswered and answer.strip()) or len(answer) > self.settings["MAX_ANSWER_CHARACTERS"]:
             raise ConversationError("Provide a nonempty answer within the configured length limit.", 400)
         answer = answer.strip()
-        digest = hashlib.sha256(json.dumps([turn_id, answer]).encode()).hexdigest()
+        digest = hashlib.sha256(json.dumps([turn_id, answer, unanswered]).encode()).hexdigest()
         with self.journal.edit(identity) as state:
             self._recover_stale(state)
             if state.get("end_requested") and not (retry and state.get("retry_stage") == "scorecard"):
@@ -183,7 +184,7 @@ class ConversationService:
                 raise ConversationError("The interview service is busy. Your answer is kept; retry shortly.", 503)
             stage = state.get("retry_stage", "evaluation") if retry else "evaluation"
             job = {"digest": digest, "turn_id": turn_id, "answer": answer, "stage": stage,
-                   "status": "queued", "updated_at": time.time()}
+                   "unanswered": unanswered, "status": "queued", "updated_at": time.time()}
             state["jobs"][request_id] = job
             state.update(status="scoring" if stage == "scorecard" else "evaluating", active_request=request_id,
                          draft=answer, error=None, retry_stage=stage)
@@ -213,7 +214,7 @@ class ConversationService:
             if job["stage"] == "evaluation":
                 start = time.perf_counter()
                 evaluator = mock_evaluate if work["mock"] else self.evaluator
-                next_question = advance(work, job["answer"], evaluator)
+                next_question = advance(work, job["answer"], evaluator, unanswered=job.get("unanswered", False))
                 elapsed = (time.perf_counter() - start) * 1000
                 with self.journal.edit(identity) as state:
                     if state.get("active_request") != request_id or state["status"] != "evaluating":
@@ -234,8 +235,10 @@ class ConversationService:
                     state["jobs"][request_id].update(stage="scorecard", updated_at=time.time())
                     work = deepcopy(state)
             start = time.perf_counter()
-            scorecard = mock_scorecard(work["candidate_name"], work["interview_history"]) if work["mock"] else self.scorecard(work["candidate_name"], work["interview_history"])
-            if not isinstance(scorecard, dict) or not isinstance(scorecard.get("overall_score"), (int, float)):
+            evaluated = [item for item in work["interview_history"] if item.get("evaluation")]
+            scorecard = ({"insufficient_evidence": True} if not evaluated else
+                         mock_scorecard(work["candidate_name"], evaluated) if work["mock"] else self.scorecard(work["candidate_name"], evaluated))
+            if not isinstance(scorecard, dict) or (not scorecard.get("insufficient_evidence") and not isinstance(scorecard.get("overall_score"), (int, float))):
                 raise ValueError("Invalid scorecard response")
             elapsed = (time.perf_counter() - start) * 1000
             with self.journal.edit(identity) as state:
@@ -269,7 +272,6 @@ class ConversationService:
                             state["jobs"][active]["status"] = "cancelled"
                         state.pop("active_request", None)
                         history = [item for item in state.get("interview_history", []) if item.get("evaluation")]
-                        state["interview_history"] = history
                         if history:
                             state.update(status="ending", retry_stage="scorecard", draft=history[-1]["answer"])
                         else:

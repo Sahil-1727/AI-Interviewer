@@ -5,6 +5,7 @@ import os
 
 DEFAULTS = {
     "INITIAL_THINKING_PROMPT_SECONDS": 15,
+    "INITIAL_ANSWER_TIMEOUT_SECONDS": 10,
     "END_OF_ANSWER_SILENCE_SECONDS": 5,
     "COMMAND_CHECKPOINT_SECONDS": 1,
     "AUDIO_SAMPLE_INTERVAL_MS": 50,
@@ -31,6 +32,7 @@ DEFAULTS = {
     "MIN_VOICED_SECONDS": 0.2,
     "STT_MIN_LOGPROB": -1,
     "STT_MAX_NO_SPEECH_PROB": 0.6,
+    "WHISPER_BEAM_SIZE": 3,
 }
 
 
@@ -49,7 +51,7 @@ def voice_config():
         raise ValueError("SEGMENT_SECONDS must be below MAX_SEGMENT_SECONDS")
     if settings["CONVERSATION_STALE_SECONDS"] <= settings["GEMINI_TIMEOUT_SECONDS"] * 2:
         raise ValueError("CONVERSATION_STALE_SECONDS must exceed two Gemini timeouts")
-    for name in ("CONVERSATION_WORKERS", "CONVERSATION_QUEUE_LIMIT", "MAX_PENDING_SEGMENTS"):
+    for name in ("CONVERSATION_WORKERS", "CONVERSATION_QUEUE_LIMIT", "MAX_PENDING_SEGMENTS", "WHISPER_BEAM_SIZE"):
         if settings[name] != int(settings[name]) or settings[name] < 1:
             raise ValueError(f"{name} must be a positive integer")
     if not 0 < settings["NOISE_FLOOR_SMOOTHING"] <= 1 or settings["STT_MAX_NO_SPEECH_PROB"] > 1:

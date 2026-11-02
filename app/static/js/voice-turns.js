@@ -2,8 +2,9 @@
  * Pure timing policy, shared by the browser and simulated Node tests. */
 (function (root) {
     class TurnDetector {
-        constructor(config, now) {
+        constructor(config, now, initialTimeout = false) {
             this.config = config;
+            this.initialTimeout = initialTimeout;
             this.started = now;
             this.lastActivity = now;
             this.activitySince = null;
@@ -40,6 +41,7 @@
             }
             this.activitySince = null;
             if (!this.hasSpeech) {
+                if (this.initialTimeout && now - this.started >= c.INITIAL_ANSWER_TIMEOUT_SECONDS * 1000) return "unanswered";
                 if (!this.prompted && now - this.started >= c.INITIAL_THINKING_PROMPT_SECONDS * 1000) {
                     this.prompted = true;
                     return "initial-prompt";

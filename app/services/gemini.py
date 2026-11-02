@@ -62,16 +62,11 @@ Use exactly this structure:
             "type": "problem_solving",
             "skill": "skill being evaluated",
             "question": "question text"
-        }},
-        {{
-            "type": "behavioral",
-            "skill": "competency being evaluated",
-            "question": "question text"
         }}
     ]
 }}
 
-Generate 10-15 questions covering:
+Generate exactly 3 questions covering a relevant mix of:
 - Technical knowledge
 - Resume/project knowledge
 - Problem solving
@@ -79,6 +74,12 @@ Generate 10-15 questions covering:
 
 Questions must be relevant to BOTH the job description and the candidate's resume.
 Do not invent experience that is not present in the resume.
+This is a voice-only interview, not a coding assessment. Never ask the candidate
+to write code, implement functions, type SQL, or use a code editor. Ask clear,
+conversational conceptual, practical, scenario, project, or behavioral questions.
+For programming topics ask the candidate to explain their approach verbally.
+Match difficulty to the role, candidate experience, and any entry-level or
+internship expectations in the job description.
 """
 
 
@@ -96,6 +97,8 @@ Do not invent experience that is not present in the resume.
         response_text = response_text.strip()
 
     interview_plan = json.loads(response_text)
+    # Keep test interviews short even if the model returns extra questions.
+    interview_plan["questions"] = interview_plan["questions"][:3]
 
     for question in interview_plan["questions"]:
         question["skill"] = (
@@ -123,6 +126,9 @@ Question type:
 
 Candidate's answer:
 {answer}
+
+Role and candidate experience context:
+{json.dumps(question.get("evaluation_context", {}), ensure_ascii=False)}
 
 Evaluate the candidate based only on the question and the skill being evaluated.
 
@@ -152,7 +158,13 @@ Use exactly this structure:
 
 Rules:
 
-1. Score the answer from 0 to 10.
+1. Score from 0 to 10 relative to the target role and experience. Use these
+   anchors: 0–2 substantially incorrect or irrelevant; 3–4 partial with major
+   gaps; 5–6 adequate core understanding with some gaps; 7–8 good, correct
+   understanding; 9–10 excellent, accurate and appropriately complete.
+   An unanswered question is recorded separately and is never evaluated here.
+   Reward correct core concepts even if concise; do not require advanced detail
+   unless the question asks for it. Do not award points for incorrect claims.
 
 2. Set "follow_up_needed" to true if:
    - the answer is incorrect,
@@ -169,8 +181,12 @@ Rules:
 4. If "follow_up_needed" is false:
    - Set "follow_up_question" to an empty string.
 
-5. Do not penalize minor grammar or spelling mistakes heavily
-   if the technical meaning is clear.
+5. Judge technical understanding rather than speaking style. Do not heavily
+   penalize grammar, accent, hesitation, or minor transcription errors. When
+   transcription is genuinely unclear, acknowledge recognition uncertainty
+   and use a clarifying follow-up rather than assuming lack of knowledge.
+   Use follow-ups to explore incomplete answers rather than automatically
+   assigning a very low score. Keep every assessment evidence-based.
 """
 
     response = get_client().models.generate_content(

@@ -101,6 +101,7 @@ def home():
 
         session.clear()
         session["candidate_name"] = candidate_name
+        session["evaluation_context"] = {"job_description": job_description, "resume": resume}
         session["interview_plan"] = interview_plan
         session["current_question"] = 0
         session["interview_history"] = []
@@ -218,7 +219,8 @@ def final_scorecard():
 
     scorecard = session.get("final_scorecard")
     if not scorecard:
-        scorecard = generate_final_scorecard(session.get("candidate_name"), interview_history)
+        evaluated = [item for item in interview_history if item.get("evaluation")]
+        scorecard = generate_final_scorecard(session.get("candidate_name"), evaluated) if evaluated else {"insufficient_evidence": True}
         session["final_scorecard"] = scorecard
 
     return render_template(
@@ -226,7 +228,10 @@ def final_scorecard():
         candidate_name=session.get("candidate_name"),
         scorecard=scorecard,
         early_ended=early_ended,
-        answered_questions=len(interview_history),
+        answered_questions=sum(bool(item.get("evaluation")) for item in interview_history),
+        unanswered_questions=[entry for item in interview_history
+                              for entry in (item, item.get("follow_up", {}))
+                              if entry.get("status") == "Unanswered"],
         planned_questions=len(session.get("interview_plan", {}).get("questions", [])),
     )
 

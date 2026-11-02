@@ -180,7 +180,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (t.auto && response.status === 400 && result.error === "No speech detected.") {
                     if (capture && t.revision === segment.revision) {
                         if (t.lastValidatedEnd === null) {
-                            t.detector.waitForSpeech(performance.now());
+                            t.detector.hasSpeech = false;
+                            t.detector.activitySince = null;
                             state("thinking", "Take your time. Waiting for a clear answer.");
                         } else {
                             // A later non-speech burst should not extend the
@@ -207,7 +208,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         t.lastValidatedEnd = null;
                         t.awaitingSpeech = true;
                         prompt("Of course. Take your time — I'm here when you're ready.");
-                        state("thinking", "Take your time. Nothing will advance until you continue.");
+                        state("thinking", managed ? `Please begin within ${config.INITIAL_ANSWER_TIMEOUT_SECONDS} seconds, or pause the interview for more time.` : "Take your time. Continue when ready.");
                     } else if (result.command === "repeat") {
                         if (managed) emit("voice:repeat"); else void speakQuestion();
                     }
@@ -242,11 +243,13 @@ document.addEventListener("DOMContentLoaded", () => {
         t.stopping = false;
         if (turn !== t || t.cancelled) return;
         if (t.failed) { controls(); return; }
-        state(destination, destination === "paused"
+        state(destination === "unanswered" ? "transcribing" : destination, destination === "paused"
             ? "Microphone paused. Resume when you're ready; your transcript is kept."
             : t.parts.length ? "Transcript ready. Review and submit it when you're ready, or record more."
                 : "No new speech detected. Record again or type your answer.");
-        if (destination === "review") {
+        if (destination === "unanswered") {
+            emit("voice:unanswered", {captureId: t.id});
+        } else if (destination === "review") {
             const usable = answer.value.trim() && (force || !t.auto || (t.confirmedSpeech && !t.awaitingSpeech));
             emit(usable ? "voice:answer" : "voice:empty", {transcript: usable ? answer.value.trim() : "", captureId: t.id});
         }
@@ -288,7 +291,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const now = performance.now();
             capture = {stream, context, started: now};
             acquiringContext = null;
-            t.detector = new VoiceTurns.TurnDetector(config, now);
+            t.detector = new VoiceTurns.TurnDetector(config, now, managed && !t.baseline);
             if (t.auto) {
                 capture.source = context.createMediaStreamSource(stream);
                 capture.analyser = context.createAnalyser();
@@ -302,7 +305,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }));
             acquiring = false;
             state(t.auto ? "thinking" : "listening", t.auto
-                ? "Listening when you're ready. Initial silence won't finish your answer."
+                ? (managed ? `Please begin your answer within ${config.INITIAL_ANSWER_TIMEOUT_SECONDS} seconds.` : "Listening when you're ready.")
                 : "Recording. Select Done Speaking to transcribe.");
             capture.timer = setInterval(() => sample(t), config.AUDIO_SAMPLE_INTERVAL_MS);
         } catch (error) {
@@ -359,6 +362,8 @@ document.addEventListener("DOMContentLoaded", () => {
                     capture.segment.hasActivity = true;
                     if (phase !== "listening") state("listening", "Listening. Natural pauses are welcome.");
                 }
+            } else if (event === "unanswered") {
+                void finish("unanswered");
             } else if (event === "initial-prompt") {
                 prompt("Still thinking? Take your time — nothing will be sent until you speak or select Done Speaking.");
             } else if (event === "checkpoint") {

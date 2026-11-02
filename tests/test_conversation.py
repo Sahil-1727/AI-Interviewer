@@ -64,6 +64,33 @@ class ConversationTests(unittest.TestCase):
         self.wait(state['interview_id'])
         return self.client.get('/api/conversation').json
 
+    def test_unanswered_is_idempotent_and_excluded_from_evaluation_and_scorecard(self):
+        state = self.start()
+        payload = dict(self.payload(state, ''), unanswered=True)
+        self.assertEqual(self.client.post('/api/conversation/answer', json=payload).status_code, 202)
+        self.wait(state['interview_id'])
+        self.assertEqual(self.client.post('/api/conversation/answer', json=payload).status_code, 202)
+        self.evaluate.assert_not_called()
+        next_state = self.client.get('/api/conversation').json
+        result = self.send(next_state)
+        self.assertEqual(result['status'], 'completed')
+        self.assertEqual(self.evaluate.call_count, 1)
+        self.assertEqual(len(self.scorecard.call_args.args[1]), 1)
+        page = self.client.get('/final-scorecard')
+        self.assertIn(b'Question 1 \xe2\x80\x94 Unanswered', page.data)
+
+    def test_all_unanswered_has_no_numeric_score_or_model_calls(self):
+        state = self.start()
+        for _ in range(2):
+            payload = dict(self.payload(state, ''), unanswered=True)
+            self.assertEqual(self.client.post('/api/conversation/answer', json=payload).status_code, 202)
+            self.wait(state['interview_id'])
+            state = self.client.get('/api/conversation').json
+        self.evaluate.assert_not_called()
+        self.scorecard.assert_not_called()
+        self.assertEqual(state['status'], 'completed')
+        self.assertIn(b'Insufficient evidence', self.client.get('/final-scorecard').data)
+
     def test_whole_interview_with_follow_up_and_cached_report(self):
         with patch.object(run, 'evaluate_answer', side_effect=AssertionError('Unexpected Gemini')), patch.object(run, 'generate_final_scorecard', side_effect=AssertionError('Unexpected Gemini')):
             state = self.start()

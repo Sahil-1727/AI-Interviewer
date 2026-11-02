@@ -68,7 +68,8 @@ exported environment variables. Restart Flask after changing them.
 
 | Setting | Default | Meaning |
 | --- | ---: | --- |
-| INITIAL_THINKING_PROMPT_SECONDS | 15 | Gentle visual prompt before first speech; initial silence never auto-submits |
+| INITIAL_ANSWER_TIMEOUT_SECONDS | 10 | Mark an initially silent managed voice turn unanswered |
+| INITIAL_THINKING_PROMPT_SECONDS | 15 | Gentle visual prompt in standalone automatic recording |
 | END_OF_ANSWER_SILENCE_SECONDS | 5 | Finish automatically after this much silence following activity |
 | COMMAND_CHECKPOINT_SECONDS | 1 | Pause before sending a segment for early phrase recognition |
 | PLAYBACK_SETTLE_SECONDS | 0.6 | Mic remains closed after question audio |
@@ -79,8 +80,11 @@ exported environment variables. Restart Flask after changing them.
 | REQUEST_TIMEOUT_SECONDS | 90 | Client request bound |
 | GEMINI_TIMEOUT_SECONDS | 60 | Single-attempt provider timeout, SDK retries disabled |
 | CONVERSATION_STALE_SECONDS | 240 | Interrupt recovery threshold; never silently redispatch |
+| WHISPER_BEAM_SIZE | 3 | English decoder beam size; higher values can increase CPU latency |
 
-Initial silence never completes a turn. Once sustained activity has started,
+In managed voice mode, initial silence marks the turn unanswered after ten seconds;
+it is not sent for evaluation. Pause the interview if more thinking time is needed.
+Standalone/manual recording keeps its existing behavior. Once sustained activity has started,
 five seconds without further detected activity finalizes the answer and submits a
 valid transcript automatically. Short sound spikes below the minimum sustained
 activity do not reset the timer. If a later segment is rejected as non-speech by
@@ -95,7 +99,7 @@ the five-second timer. The default checkpoint itself waits one second of
 silence, and Whisper processing adds latency, so this is not instantaneous speech
 recognition. Other recognized controls include “That's all”, “Give me a moment”,
 “Let me think”, and “Can you repeat the question?” A recognized more-time command
-disarms completion until fresh speech. Quoted or embedded phrases are left in
+restarts the initial waiting period. Quoted or embedded phrases are left in
 answer text; recognition can still misinterpret ambiguous speech. Done Speaking
 is the immediate manual fallback. A backend guard prevents a control-only
 transcript from being sent to Gemini.

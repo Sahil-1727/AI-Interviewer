@@ -98,7 +98,8 @@ def transcribe_audio(audio_file, detect_completion=False):
                 audio,
                 language="en",
                 vad_filter=True,
-                beam_size=1
+                beam_size=int(settings["WHISPER_BEAM_SIZE"]),
+                condition_on_previous_text=False
             )
 
             segments = list(segments)

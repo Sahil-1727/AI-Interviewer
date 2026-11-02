@@ -2,7 +2,7 @@
 from copy import deepcopy
 
 
-FIELDS = ("candidate_name", "interview_plan", "current_question", "interview_history", "current_follow_up", "final_scorecard")
+FIELDS = ("candidate_name", "interview_plan", "current_question", "interview_history", "current_follow_up", "final_scorecard", "evaluation_context")
 
 
 def question_for(state):
@@ -13,11 +13,11 @@ def question_for(state):
     return state.get("current_follow_up") or questions[index]
 
 
-def advance(state, answer, evaluator):
+def advance(state, answer, evaluator, unanswered=False):
     """Mutate only after evaluation succeeds. Follow-ups retain existing behavior:
     their answers are evidence on the original history entry for the scorecard.
     """
-    if not isinstance(answer, str) or not answer.strip():
+    if not isinstance(answer, str) or (not answer.strip() and not unanswered):
         raise ValueError("An answer is required.")
     question = question_for(state)
     if question is None:
@@ -25,6 +25,18 @@ def advance(state, answer, evaluator):
     answer = answer.strip()
     history = deepcopy(state.get("interview_history", []))
     index = state.get("current_question", 0)
+    if unanswered:
+        if state.get("current_follow_up"):
+            if not history or len(history) != index + 1:
+                raise ValueError("The follow-up has no matching answer.")
+            history[-1]["follow_up"] = {"question": question["question"], "answer": "", "status": "Unanswered"}
+            state.pop("current_follow_up", None)
+        else:
+            history.append({"question": question["question"], "skill": question.get("skill", "General Knowledge"),
+                            "type": question["type"], "answer": "", "status": "Unanswered"})
+        state["interview_history"] = history
+        state["current_question"] = index + 1
+        return question_for(state)
     if state.get("current_follow_up"):
         if not history or len(history) != index + 1:
             raise ValueError("The follow-up has no matching answer.")
@@ -33,7 +45,7 @@ def advance(state, answer, evaluator):
         state.pop("current_follow_up", None)
         state["current_question"] = index + 1
     else:
-        evaluation = evaluator(question, answer)
+        evaluation = evaluator({**question, "evaluation_context": state.get("evaluation_context", {})}, answer)
         if not isinstance(evaluation, dict) or not isinstance(evaluation.get("follow_up_needed"), bool):
             raise ValueError("The evaluator returned an invalid response.")
         if evaluation["follow_up_needed"] and not str(evaluation.get("follow_up_question", "")).strip():

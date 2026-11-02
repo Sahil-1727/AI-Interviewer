@@ -29,7 +29,7 @@
                 <ul>
                     <li>Listen carefully to each question before answering.</li>
                     <li>Speak clearly and at a natural pace.</li>
-                    <li>You may take time to think before you begin speaking.</li>
+                    <li>Begin speaking within {{ voice_config.INITIAL_ANSWER_TIMEOUT_SECONDS|int }} seconds, or the question will be marked unanswered.</li>
                     <li>Once you start answering, 5 consecutive seconds of silence will automatically finalize and submit your answer.</li>
                     <li>If you resume speaking before those 5 seconds end, the silence timer resets.</li>
                     <li>You can also say "I'm done" or click Done Speaking to submit immediately.</li>
@@ -41,7 +41,7 @@
                 <ul>
                     <li>The interview progresses automatically after each completed answer.</li>
                     <li>The AI may ask an adaptive follow-up question or proceed to the next question.</li>
-                    <li>You can pause and resume the interview when necessary.</li>
+                    <li>You can pause and resume the interview when necessary, including when you need more time to think.</li>
                     <li>You can click End Interview at any time.</li>
                     <li>Ending early will generate a provisional scorecard based on your completed, evaluated answers.</li>
                     <li>Unanswered questions will not automatically receive zero scores.</li>

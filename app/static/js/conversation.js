@@ -414,6 +414,11 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
         completedCaptures.add(event.detail.captureId);
         void postAnswer(newPayload());
     });
+    document.addEventListener('voice:unanswered', event => {
+        if (!active || terminating || paused || !snapshot || pending || snapshot.status !== 'ready' || completedCaptures.has(event.detail.captureId)) return;
+        completedCaptures.add(event.detail.captureId);
+        void postAnswer({...newPayload(), answer: '', unanswered: true});
+    });
     document.addEventListener('voice:empty', event => {
         if (active && !terminating && !paused && machine.state === 'TRANSCRIBING' && !voice.isBusy() && !completedCaptures.has(event.detail.captureId)) {
             completedCaptures.add(event.detail.captureId);

@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const {TurnDetector} = require('../app/static/js/voice-turns.js');
 const config = {
-    INITIAL_THINKING_PROMPT_SECONDS: 15, END_OF_ANSWER_SILENCE_SECONDS: 5,
+    INITIAL_THINKING_PROMPT_SECONDS: 15, INITIAL_ANSWER_TIMEOUT_SECONDS: 10, END_OF_ANSWER_SILENCE_SECONDS: 5,
     COMMAND_CHECKPOINT_SECONDS: 1,
     AUDIO_SAMPLE_INTERVAL_MS: 50, AUDIO_LEVEL_THRESHOLD: 0.025,
     MIN_ACTIVITY_SECONDS: 0.25, PLAYBACK_SETTLE_SECONDS: 0.6,
@@ -16,6 +16,16 @@ const config = {
 function speech(detector, start = 0) {
     for (let t = start; t <= start + 300; t += 50) detector.sample(0.1, t);
 }
+
+test('managed initial silence expires at ten seconds, speech cancels it', () => {
+    const d = new TurnDetector(config, 0, true);
+    assert.equal(d.sample(0, 9999), null);
+    assert.equal(d.sample(0, 10000), 'unanswered');
+    const spoken = new TurnDetector(config, 0, true);
+    speech(spoken, 9500);
+    assert.equal(spoken.sample(0, 10000), null);
+    assert.equal(spoken.sample(0, 14800), 'finish');
+});
 
 test('initial thinking never finishes, even after repeated prompts', () => {
     const d = new TurnDetector(config, 0);
@@ -161,6 +171,22 @@ test('automatic initial silence waits without transcription; manual Done overrid
     b.elements['stop-recording'].click(); await flush();
     assert.equal(b.requests.length, 1); assert.ok(b.streams[0].track.stopped);
     assert.ok(b.contexts.every(c => c.state === 'closed'));
+});
+
+test('managed silent capture releases microphone and emits unanswered once', async () => {
+    const b = browser();
+    const events = [];
+    b.document.addEventListener('voice:unanswered', event => events.push(event.detail));
+    b.window.InterviewVoice.setManaged(true);
+    await b.window.InterviewVoice.listen();
+    await b.advance(9950);
+    assert.equal(events.length, 0);
+    await b.advance(50);
+    b.elements['stop-recording'].click();
+    await flush();
+    assert.equal(events.length, 1);
+    assert.equal(b.requests.length, 0);
+    assert.ok(b.streams[0].track.stopped);
 });
 
 test('five seconds after speech finishes one answer without duplicate uploads', async () => {
