@@ -1,4 +1,6 @@
 Flask
+Flask-Session>=0.8,<1.0
+cachelib>=0.13,<1.0
 google-genai
 python-dotenv
 pypdf

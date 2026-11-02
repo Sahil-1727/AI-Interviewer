@@ -1,7 +1,10 @@
 import asyncio
 import io
+from pathlib import Path
 
+from cachelib.file import FileSystemCache
 from flask import jsonify, send_file
+from flask_session import Session
 from app.services.stt import transcribe_audio
 from app.services.tts import synthesize_speech
 
@@ -22,6 +25,17 @@ app = Flask(
 app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024
 
 app.secret_key = "dev-secret-key"
+
+# Keep growing interview plans and history on the server. The browser cookie
+# contains only a session ID, so submitting later answers cannot exceed 4 KB.
+session_directory = Path(app.instance_path) / "sessions"
+session_directory.mkdir(parents=True, exist_ok=True)
+app.config.update(
+    SESSION_TYPE="cachelib",
+    SESSION_CACHELIB=FileSystemCache(cache_dir=str(session_directory)),
+    SESSION_PERMANENT=False,
+)
+Session(app)
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -46,6 +60,7 @@ def home():
             resume
         )
 
+        session.clear()
         session["candidate_name"] = candidate_name
         session["interview_plan"] = interview_plan
         session["current_question"] = 0
@@ -68,7 +83,7 @@ def start_interview():
     current_question = session.get("current_question", 0)
 
     if current_question >= len(questions):
-        return "Interview completed!"
+        return redirect(url_for("final_scorecard"))
 
     question = questions[current_question]
 
@@ -91,6 +106,12 @@ def submit_answer():
         return redirect(url_for("home"))
 
     current_question = session.get("current_question", 0)
+
+    if current_question >= len(interview_plan["questions"]):
+        return redirect(url_for("final_scorecard"))
+
+    if session.get("current_follow_up"):
+        return redirect(url_for("follow_up"))
 
     question = interview_plan["questions"][current_question]
 
@@ -156,6 +177,9 @@ def submit_follow_up():
     answer = request.form.get("answer")
 
     follow_up_question = session.get("current_follow_up")
+
+    if not follow_up_question:
+        return redirect(url_for("start_interview"))
 
     history = session.get("interview_history", [])
 

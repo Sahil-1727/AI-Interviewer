@@ -124,6 +124,17 @@ python run.py
 http://127.0.0.1:5000
 ```
 
+Interview sessions are stored locally in `instance/sessions/` (ignored by Git).
+The browser stores only a session ID, keeping long answers and evaluations out
+of the cookie. When upgrading from cookie-based sessions, start a new interview
+after restarting the application.
+
+To run the interview-flow regression tests without calling Gemini:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
 ## Status
 
 🚧 **Work in Progress — MVP / Prototype**
