@@ -5,8 +5,8 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const {TurnDetector} = require('../app/static/js/voice-turns.js');
 const config = {
-    INITIAL_THINKING_PROMPT_SECONDS: 15, MID_ANSWER_PAUSE_SECONDS: 5,
-    LONG_PAUSE_CONFIRMATION_SECONDS: 10, TURN_CONFIRMATION_GRACE_SECONDS: 10,
+    INITIAL_THINKING_PROMPT_SECONDS: 15, END_OF_ANSWER_SILENCE_SECONDS: 5,
+    COMMAND_CHECKPOINT_SECONDS: 1,
     AUDIO_SAMPLE_INTERVAL_MS: 50, AUDIO_LEVEL_THRESHOLD: 0.025,
     MIN_ACTIVITY_SECONDS: 0.25, PLAYBACK_SETTLE_SECONDS: 0.6,
     MAX_CAPTURE_SECONDS: 600, REQUEST_TIMEOUT_SECONDS: 90,
@@ -36,20 +36,23 @@ test('short impulses are not sustained activity', () => {
     assert.equal(d.hasSpeech, false);
 });
 
-test('5s checkpoint, 10s prompt, further 10s grace; speech or button resets finish', () => {
+test('five seconds of silence ends speech; resumed speech and noise are handled', () => {
     const d = new TurnDetector(config, 0);
     speech(d);
+    assert.equal(d.sample(0, 1300), 'checkpoint');
     assert.equal(d.sample(0, 5299), null);
-    assert.equal(d.sample(0, 5300), 'checkpoint');
-    assert.equal(d.sample(0, 10300), 'confirmation');
-    assert.equal(d.sample(0, 20299), null);
-    assert.equal(d.sample(0, 20300), 'finish');
-    d.keepThinking(20300);
-    assert.equal(d.sample(0, 20301), null);
-    assert.equal(d.sample(0, 30300), 'confirmation');
-    speech(d, 31000);
-    assert.equal(d.sample(0, 31301), null);
-    assert.equal(d.sample(0, 36300), 'checkpoint');
+    assert.equal(d.sample(0, 5300), 'finish');
+    const resumed = new TurnDetector(config, 0);
+    speech(resumed);
+    resumed.sample(0, 1300);
+    speech(resumed, 4200);
+    assert.equal(resumed.sample(0, 5300), null);
+    assert.equal(resumed.sample(0, 9500), 'finish');
+    const noisy = new TurnDetector(config, 0);
+    speech(noisy);
+    noisy.sample(0, 1300);
+    noisy.sample(.1, 5000); // short accidental sound does not reset silence
+    assert.equal(noisy.sample(0, 5300), 'finish');
 });
 
 class Target {
@@ -78,6 +81,7 @@ function browser({auto = true, level = 0, permission, stt, tts, settings = {}} =
     const document = new Target(), window = new Target();
     document.body = new Target();
     document.getElementById = id => elements[id];
+    document.dispatchEvent = event => document.emit(event.type, event);
     let energy = level;
     const streams = [], contexts = [], players = [], requests = [], recorders = [], objectUrls = new Set();
     const stream = () => {
@@ -110,7 +114,8 @@ function browser({auto = true, level = 0, permission, stt, tts, settings = {}} =
         pause() { this.paused = true; }
     }
     const sandbox = {
-        document, window, performance: {now: () => now}, VoiceTurns: {TurnDetector},
+        document, window, CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
+        performance: {now: () => now}, VoiceTurns: {TurnDetector},
         navigator: {mediaDevices: {getUserMedia: () => permission ? permission.promise : Promise.resolve(stream())}},
         MediaRecorder: Recorder, Blob, FormData, AbortController, Audio: Player,
         URL: {createObjectURL() { const url = `blob:${objectUrls.size}`; objectUrls.add(url); return url; }, revokeObjectURL(url) { objectUrls.delete(url); }},
@@ -124,6 +129,7 @@ function browser({auto = true, level = 0, permission, stt, tts, settings = {}} =
             }
             assert.equal(url, '/api/transcribe', 'only STT/TTS endpoints are allowed');
             const result = typeof stt === 'function' ? await stt() : stt ? await stt.promise : {transcript: 'An example answer.', completion_detected: false};
+            if (result.mockStatus) return {ok: false, status: result.mockStatus, json: async () => result};
             return {ok: true, status: 200, json: async () => result};
         }
     };
@@ -157,32 +163,58 @@ test('automatic initial silence waits without transcription; manual Done overrid
     assert.ok(b.contexts.every(c => c.state === 'closed'));
 });
 
-test('natural pause does not finish; confirmation grace prepares transcript without submitting', async () => {
-    const b = browser(); await b.start(); await b.talk(); await b.advance(5000);
+test('five seconds after speech finishes one answer without duplicate uploads', async () => {
+    const b = browser(); await b.start(); await b.talk(); await b.advance(1000);
     assert.equal(b.requests.length, 1); assert.equal(b.state(), 'possible_end');
     assert.equal(b.streams[0].track.stopped, false);
-    await b.advance(5000);
-    assert.equal(b.elements['thinking-prompt'].hidden, false);
-    assert.equal(b.submit.disabled, true);
-    await b.advance(10000);
+    await b.advance(3900);
+    assert.equal(b.streams[0].track.stopped, false);
+    await b.advance(100);
     assert.equal(b.state(), 'review'); assert.ok(b.streams[0].track.stopped);
-    assert.equal(b.requests.length, 1, 'silent tail is never transcribed twice');
+    assert.equal(b.requests.length, 1);
     assert.equal(b.elements.answer.value, 'An example answer.');
-    assert.equal(b.form.dataset.submitting, undefined);
 });
 
-test('Still thinking resets the grace window; resumed speech remains captured', async () => {
-    const b = browser(); await b.start(); await b.talk(); await b.advance(19000);
-    b.elements['keep-thinking'].click(); await b.advance(2000);
+test('speech resumed before five seconds cancels end-of-turn', async () => {
+    const b = browser(); await b.start(); await b.talk(); await b.advance(4000);
+    await b.talk(); await b.advance(4500);
     assert.equal(b.streams[0].track.stopped, false);
-    await b.talk(); await b.advance(20000);
+    await b.advance(500);
     assert.equal(b.state(), 'review'); assert.equal(b.requests.length, 2);
     assert.equal(b.elements.answer.value, 'An example answer. An example answer.');
 });
 
+test('VAD-rejected noise after speech does not extend the end-of-turn timer', async () => {
+    let calls = 0;
+    const b = browser({stt: async () => ++calls === 1
+        ? {transcript: 'A real answer.', completion_detected: false}
+        : {mockStatus: 400, error: 'No speech detected.'}});
+    await b.start(); await b.talk(); await b.advance(2000);
+    await b.talk(350); // a non-speech burst long enough for the energy gate
+    await b.advance(1000); // server-side VAD rejects the burst
+    await b.advance(1650); // five seconds after the real speech
+    assert.equal(b.state(), 'review');
+    assert.equal(b.elements.answer.value, 'A real answer.');
+});
+
+test('noise rejected by VAD never submits an existing draft as a new answer', async () => {
+    const pending = deferred();
+    const b = browser({stt: pending});
+    b.elements.answer.value = 'A saved draft.';
+    const answers = [], empty = [];
+    b.document.addEventListener('voice:answer', event => answers.push(event.detail));
+    b.document.addEventListener('voice:empty', event => empty.push(event.detail));
+    await b.start(); await b.talk(350); await b.advance(6100);
+    pending.resolve({mockStatus: 400, error: 'No speech detected.'});
+    await flush(); await flush();
+    assert.equal(answers.length, 0);
+    assert.equal(empty.length, 1);
+    assert.equal(b.elements.answer.value, 'A saved draft.');
+});
+
 test('recording continues during slow STT and stale completion is ignored', async () => {
     const pending = deferred(); const b = browser({stt: pending});
-    await b.start(); await b.talk(); await b.advance(5000);
+    await b.start(); await b.talk(); await b.advance(1000);
     assert.equal(b.requests.length, 1);
     await b.talk();
     pending.resolve({transcript: 'First part', completion_detected: true}); await flush();
@@ -194,11 +226,25 @@ test('recording continues during slow STT and stale completion is ignored', asyn
 
 test('recognized completion closes capture; double Done cannot duplicate transcription', async () => {
     const pending = deferred(); const b = browser({stt: pending});
-    await b.start(); await b.talk(); await b.advance(5000);
+    await b.start(); await b.talk(); await b.advance(1000);
     pending.resolve({transcript: 'Complete answer', completion_detected: true}); await flush();
     b.elements['stop-recording'].click(); await flush();
     assert.equal(b.state(), 'review'); assert.equal(b.requests.length, 1);
     assert.equal(b.elements.answer.value, 'Complete answer');
+    assert.ok(b.streams[0].track.stopped);
+});
+
+test('spoken completion racing Done emits one answer event', async () => {
+    const pending = deferred(); let calls = 0;
+    const b = browser({stt: async () => ++calls === 1 ? pending.promise : {transcript: ''}});
+    const answers = [];
+    b.document.addEventListener('voice:answer', event => answers.push(event.detail.transcript));
+    await b.start(); await b.talk(); await b.advance(1000);
+    b.elements['stop-recording'].click();
+    pending.resolve({transcript: 'A complete answer.', completion_detected: true});
+    await flush(); await flush();
+    assert.deepEqual(answers, ['A complete answer.']);
+    assert.equal(b.state(), 'review');
     assert.ok(b.streams[0].track.stopped);
 });
 
@@ -270,7 +316,7 @@ test('keyboard submission blocked while permission or transcription is in flight
 test('STT failure releases capture and preserves existing transcript', async () => {
     const pending = deferred(); const b = browser({stt: pending});
     b.elements.answer.value = 'Existing edited answer.';
-    await b.start(); await b.talk(); await b.advance(5000);
+    await b.start(); await b.talk(); await b.advance(1000);
     pending.reject(new Error('Simulated unavailable STT')); await flush();
     assert.equal(b.state(), 'error'); assert.ok(b.streams[0].track.stopped);
     assert.equal(b.elements.answer.value, 'Existing edited answer.');
@@ -303,7 +349,7 @@ test('Pause closes the pending audio context even before permission resolves', a
 
 test('more-time command disarms endpointing until fresh speech begins', async () => {
     const b = browser({stt: async () => ({transcript: '', command: 'think'})});
-    await b.start(); await b.talk(); await b.advance(5000);
+    await b.start(); await b.talk(); await b.advance(1000);
     assert.equal(b.state(), 'thinking');
     await b.advance(60000);
     assert.equal(b.streams[0].track.stopped, false);
@@ -318,7 +364,7 @@ test('failed STT retries the saved audio without rerecording or losing previous 
         return {transcript: 'Recovered speech.', completion_detected: false};
     }});
     b.elements.answer.value = 'Prior edited text.';
-    await b.start(); await b.talk(); await b.advance(5000);
+    await b.start(); await b.talk(); await b.advance(1000);
     assert.equal(b.state(), 'error'); assert.equal(b.window.InterviewVoice.hasRecovery(), true);
     await b.window.InterviewVoice.retryTranscription(); await flush();
     assert.equal(b.state(), 'review');

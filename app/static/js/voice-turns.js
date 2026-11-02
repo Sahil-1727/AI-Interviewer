@@ -10,14 +10,12 @@
             this.hasSpeech = false;
             this.prompted = false;
             this.checkpointed = false;
-            this.confirmedAt = null;
         }
 
         keepThinking(now) {
             this.lastActivity = now;
             this.started = now;
             this.prompted = false;
-            this.confirmedAt = null;
         }
 
         waitForSpeech(now) {
@@ -31,11 +29,9 @@
             const c = this.config;
             if (level >= c.AUDIO_LEVEL_THRESHOLD) {
                 if (this.activitySince === null) this.activitySince = now;
-                // Even a short sound cancels an imminent automatic finish.
-                this.lastActivity = now;
-                this.confirmedAt = null;
-                this.prompted = false;
                 if (now - this.activitySince >= c.MIN_ACTIVITY_SECONDS * 1000) {
+                    this.lastActivity = now;
+                    this.prompted = false;
                     this.hasSpeech = true;
                     this.checkpointed = false;
                     return "activity";
@@ -51,14 +47,8 @@
                 return null; // Initial silence can NEVER finish a turn.
             }
             const silence = now - this.lastActivity;
-            if (silence >= c.LONG_PAUSE_CONFIRMATION_SECONDS * 1000) {
-                if (this.confirmedAt === null) {
-                    this.confirmedAt = now;
-                    return "confirmation";
-                }
-                if (now - this.confirmedAt >= c.TURN_CONFIRMATION_GRACE_SECONDS * 1000) return "finish";
-            }
-            if (!this.checkpointed && silence >= c.MID_ANSWER_PAUSE_SECONDS * 1000) {
+            if (silence >= c.END_OF_ANSWER_SILENCE_SECONDS * 1000) return "finish";
+            if (!this.checkpointed && silence >= c.COMMAND_CHECKPOINT_SECONDS * 1000) {
                 this.checkpointed = true;
                 return "checkpoint";
             }

@@ -53,7 +53,7 @@ class ConversationTests(unittest.TestCase):
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
             state = self.service.get(identity)
-            if state['status'] not in {'evaluating', 'scoring'}:
+            if state['status'] not in {'evaluating', 'scoring', 'ending'}:
                 return state
             time.sleep(.005)
         self.fail('Mock background job did not settle')
@@ -200,9 +200,116 @@ class ConversationTests(unittest.TestCase):
         self.client.post('/api/conversation/control', json={'action': 'end'})
         release.set()
         result = self.wait(state['interview_id'])
-        self.assertEqual(result['status'], 'ended')
+        self.assertEqual(result['status'], 'completed')
+        self.assertTrue(result['final_scorecard']['insufficient_evidence'])
+        self.assertEqual(result['interview_history'], [])
         self.assertTrue(result['paused'])
         self.assertEqual(self.client.post('/api/conversation/control', json={'action': 'resume'}).status_code, 409)
+
+    def test_end_before_any_answer_has_no_score_or_provider_call(self):
+        state = self.start()
+        result = self.client.post('/api/conversation/control', json={'action': 'end'}).json
+        self.assertEqual(result['status'], 'completed')
+        self.assertTrue(result['early_ended'])
+        report = self.client.get('/final-scorecard')
+        self.assertEqual(report.status_code, 200)
+        self.assertIn(b'Interview Ended Early', report.data)
+        self.assertIn(b'Insufficient evidence', report.data)
+        self.assertIn(b'0 of 2 planned questions', report.data)
+        self.assertNotIn(b'/ 10', report.data)
+        self.scorecard.assert_not_called()
+        self.evaluate.assert_not_called()
+        self.assertEqual(self.client.post('/api/conversation/answer', json=self.payload(state)).status_code, 409)
+
+    def test_end_after_answers_scores_only_committed_history_once(self):
+        self.seed(self.client, count=4, follow_up=False)
+        state = self.start()
+        state = self.send(state)
+        state = self.send(state)
+        result = self.client.post('/api/conversation/control', json={'action': 'end'}).json
+        result = self.wait(result['interview_id'])
+        self.assertTrue(result['early_ended'])
+        self.assertEqual(result['status'], 'completed')
+        self.assertEqual(len(result['interview_history']), 2)
+        self.assertEqual(len(self.scorecard.call_args.args[1]), 2)
+        self.assertEqual(self.scorecard.call_count, 1)
+        self.client.post('/api/conversation/control', json={'action': 'end'})
+        for _ in range(2):
+            report = self.client.get('/final-scorecard')
+            self.assertIn(b'2 of 4 planned questions', report.data)
+            self.assertIn(b'Interview Ended Early', report.data)
+        self.assertEqual(self.scorecard.call_count, 1)
+        self.assertEqual(self.client.post('/api/conversation/answer', json=self.payload(state)).status_code, 409)
+
+    def test_end_during_evaluation_excludes_uncommitted_answer(self):
+        self.seed(self.client, count=3, follow_up=False)
+        state = self.start()
+        state = self.send(state)
+        entered, release = threading.Event(), threading.Event()
+        def slow(question, answer):
+            entered.set(); release.wait(3)
+            return mock_evaluate(question, answer)
+        self.evaluate.side_effect = slow
+        self.client.post('/api/conversation/answer', json=self.payload(state, 'Unfinished evaluation'))
+        self.assertTrue(entered.wait(1))
+        self.client.post('/api/conversation/control', json={'action': 'end'})
+        result = self.wait(state['interview_id'])
+        self.assertEqual(result['status'], 'completed')
+        self.assertEqual(len(result['interview_history']), 1)
+        self.assertEqual(len(self.scorecard.call_args.args[1]), 1)
+        release.set()
+        self.service.executor.shutdown(wait=True)
+        self.assertEqual(len(self.service.get(state['interview_id'])['interview_history']), 1)
+        self.assertEqual(self.scorecard.call_count, 1)
+
+    def test_repeated_end_while_scorecard_is_in_flight_is_idempotent(self):
+        self.seed(self.client, count=3, follow_up=False)
+        state = self.send(self.start())
+        entered, release = threading.Event(), threading.Event()
+        def slow(candidate, history):
+            entered.set(); release.wait(3)
+            return mock_scorecard(candidate, history)
+        self.scorecard.side_effect = slow
+        self.client.post('/api/conversation/control', json={'action': 'end'})
+        self.assertTrue(entered.wait(1))
+        self.client.post('/api/conversation/control', json={'action': 'end'})
+        release.set()
+        self.assertEqual(self.wait(state['interview_id'])['status'], 'completed')
+        self.assertEqual(self.scorecard.call_count, 1)
+
+    def test_early_scorecard_error_retries_without_reevaluating(self):
+        self.seed(self.client, count=3, follow_up=False)
+        state = self.send(self.start())
+        self.scorecard.side_effect = TimeoutError('mock scorecard timeout')
+        self.client.post('/api/conversation/control', json={'action': 'end'})
+        failed = self.wait(state['interview_id'])
+        self.assertEqual(failed['status'], 'error')
+        self.assertEqual(failed['retry_stage'], 'scorecard')
+        self.assertEqual(self.evaluate.call_count, 1)
+        self.scorecard.side_effect = mock_scorecard
+        current = self.client.get('/api/conversation').json
+        self.assertEqual(self.client.post('/api/conversation/retry', json=self.payload(current, current['draft'])).status_code, 202)
+        self.assertEqual(self.wait(state['interview_id'])['status'], 'completed')
+        self.assertEqual(self.evaluate.call_count, 1)
+        self.assertEqual(self.scorecard.call_count, 2)
+
+    def test_early_scorecard_waits_for_a_busy_worker_slot(self):
+        self.seed(self.client, count=3, follow_up=False)
+        state = self.send(self.start())
+        self.service.slots = threading.BoundedSemaphore(1)
+        entered, release = threading.Event(), threading.Event()
+        def slow(question, answer):
+            entered.set(); release.wait(3)
+            return mock_evaluate(question, answer)
+        self.evaluate.side_effect = slow
+        self.client.post('/api/conversation/answer', json=self.payload(state))
+        self.assertTrue(entered.wait(1))
+        ended = self.client.post('/api/conversation/control', json={'action': 'end'}).json
+        self.assertEqual(ended['status'], 'ending')
+        self.assertEqual(self.scorecard.call_count, 0)
+        release.set()
+        self.assertEqual(self.wait(state['interview_id'])['status'], 'completed')
+        self.assertEqual(self.scorecard.call_count, 1)
 
     def test_mock_selection_is_server_side(self):
         with patch.dict(run.app.config, VOICE_MOCK_MODE=True):

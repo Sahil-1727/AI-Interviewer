@@ -4,13 +4,23 @@ Launch: PYTHONPATH=. venv/bin/python tests/voice_demo.py
 STT/TTS stay real. Browser tests intercept their HTTP responses separately.
 """
 from flask import redirect, session
+import os
+import time
 import run
+import app.services.conversation as conversation
 from app.services.conversation import mock_evaluate, mock_scorecard
 
 app = run.app
 app.config['VOICE_MOCK_MODE'] = True
 run.evaluate_answer = mock_evaluate
 run.generate_final_scorecard = mock_scorecard
+
+delay = float(os.getenv('VOICE_DEMO_EVALUATION_DELAY_SECONDS', '0'))
+if delay:
+    def delayed_mock_evaluate(question, answer):
+        time.sleep(delay)
+        return mock_evaluate(question, answer)
+    conversation.mock_evaluate = delayed_mock_evaluate
 
 
 def mock_plan(*args):

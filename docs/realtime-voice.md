@@ -15,7 +15,7 @@ added.
 | `app/services/gemini.py` | Configurable model, lazy client, timeout and disabled automatic retries; prompts unchanged |
 | `app/services/stt.py`, `app/services/voice_commands.py` | Bounded decoding, real VAD evidence, confidence gates and standalone commands |
 | `app/voice_config.py`, `.env.example` | Central thresholds, durations, queue limits and model settings |
-| `app/static/js/voice.js`, `voice-turns.js`, `conversation.js` | Capture/playback lifecycle, endpoint policy, explicit state graph and continuous UI loop |
+| `app/static/js/voice.js`, `voice-turns.js`, `conversation.js`, `interview-instructions.js` | Capture/playback, endpoint policy, conversation state and readiness checks |
 | `app/static/js/camera.js` | Release late camera permissions after navigation |
 | `app/templates/interview.html`, `app/static/css/style.css` | Conversational controls, actual mic activity meter and preserved manual fallback |
 | `tests/test_conversation.py`, `test_voice_audio.py`, `test_voice_stage1.py`, `voice_turns.test.cjs` | Backend, audio, manual-contract and simulated browser regressions |
@@ -31,15 +31,20 @@ owns a checked state-transition graph, question rendering, API recovery and the
 continuous interview loop. Questions change in place; the final scorecard is the
 only automatic page navigation. Camera streams are separate and stay active.
 
+The instruction screen requires acknowledgment and a successful microphone
+access check to start voice mode. The optional camera check never blocks it;
+manual mode is available if microphone access is unavailable.
+
 Python owns speech recognition, synthesis and interview decisions:
 
 1. Start claims a session-owned interview ID and returns its current turn ID.
 2. The question is synthesized with edge-tts and played through one reused audio
    element, unlocked by the initial Start click. The mic is off during synthesis
    and playback, then opens after the configured speaker-tail interval.
-3. The browser tentatively detects sustained sound. Five seconds after activity
-   it transcribes a checkpoint while continuing to record the next independent
-   file. Continuous speech also rotates files every 25 seconds.
+3. The browser tentatively detects sustained sound. After a one-second pause it
+   transcribes a checkpoint while continuing to record the next independent file,
+   so a completion phrase can be recognized before the end-of-answer timer.
+   Continuous speech also rotates files every 25 seconds.
 4. faster-whisper runs its bundled **real Silero VAD**, then decodes English speech.
    Automatic transcripts must pass voiced-duration and decoder-quality gates.
 5. A completed, nonempty transcript is sent with a unique request ID and the
@@ -64,9 +69,8 @@ exported environment variables. Restart Flask after changing them.
 | Setting | Default | Meaning |
 | --- | ---: | --- |
 | INITIAL_THINKING_PROMPT_SECONDS | 15 | Gentle visual prompt before first speech; initial silence never auto-submits |
-| MID_ANSWER_PAUSE_SECONDS | 5 | Checkpoint; a five-second pause does not evaluate an answer |
-| LONG_PAUSE_CONFIRMATION_SECONDS | 10 | Offer “Still thinking?” after actual activity |
-| TURN_CONFIRMATION_GRACE_SECONDS | 10 | Additional chance to continue before automatic completion |
+| END_OF_ANSWER_SILENCE_SECONDS | 5 | Finish automatically after this much silence following activity |
+| COMMAND_CHECKPOINT_SECONDS | 1 | Pause before sending a segment for early phrase recognition |
 | PLAYBACK_SETTLE_SECONDS | 0.6 | Mic remains closed after question audio |
 | SEGMENT_SECONDS | 25 | Bound each browser audio file, even for continuous speech |
 | MAX_SEGMENT_SECONDS | 90 | Enforce a server decode limit incrementally |
@@ -76,21 +80,25 @@ exported environment variables. Restart Flask after changing them.
 | GEMINI_TIMEOUT_SECONDS | 60 | Single-attempt provider timeout, SDK retries disabled |
 | CONVERSATION_STALE_SECONDS | 240 | Interrupt recovery threshold; never silently redispatch |
 
-Defaults deliberately favor patience: automatic silence completion is about
-**20 seconds after last activity**, not five. A phrase command can finish at a
-checkpoint sooner. The “Still thinking” button renews the wait. A recognized
-“Give me a moment” or “Let me think” disarms completion until fresh speech.
+Initial silence never completes a turn. Once sustained activity has started,
+five seconds without further detected activity finalizes the answer and submits a
+valid transcript automatically. Short sound spikes below the minimum sustained
+activity do not reset the timer. If a later segment is rejected as non-speech by
+server VAD, the detector restores the last validated speech time when possible.
+There is no long-pause confirmation or grace
+period after speech. Select Pause if you need more than five seconds to think.
 
-Command recognition requires a confident **whole uploaded utterance**, never a
-substring of a technical answer. Supported completion phrases include “I'm done”,
-“I am done”, and “That's all”; repeat phrases include “Can you repeat the question?”
-and “Please repeat the question.” No phrase is removed from a larger answer, and
-`raw_transcript` is preserved in the automatic STT response. For best recognition,
-use a standalone command after a pause. A command merged into a longer answer is
-intentionally treated as answer content. Confidence scores are heuristics, not a
-proof of intent. If recognition is uncertain, silence completion and Done
-Speaking remain available. A backend guard also prevents a control-only transcript
-from being sent to Gemini.
+Whisper can recognize “I'm done” as a standalone utterance or a final separate
+sentence; the preceding answer and `raw_transcript` are preserved. A confident
+command finishes when the checkpoint transcription returns, without waiting for
+the five-second timer. The default checkpoint itself waits one second of
+silence, and Whisper processing adds latency, so this is not instantaneous speech
+recognition. Other recognized controls include “That's all”, “Give me a moment”,
+“Let me think”, and “Can you repeat the question?” A recognized more-time command
+disarms completion until fresh speech. Quoted or embedded phrases are left in
+answer text; recognition can still misinterpret ambiguous speech. Done Speaking
+is the immediate manual fallback. A backend guard prevents a control-only
+transcript from being sent to Gemini.
 
 The frontend state graph explicitly controls `IDLE`, `PREPARING`, `AI_SPEAKING`,
 `THINKING`, `LISTENING`, `POSSIBLE_END_OF_TURN`, `TRANSCRIBING`, `EVALUATING`,
@@ -149,8 +157,15 @@ and pending idempotency keys live in tab-scoped sessionStorage. Refresh returns
 paused and requires Resume to satisfy browser audio permissions. A lost answer
 HTTP response is reconciled with server state before resending the same key.
 Server evaluation may finish while paused; it cannot trigger playback until
-resumed. End stops future turns; it does not claim to cancel an already-dispatched
-external request. Use manual mode to return to the original HTML flow.
+resumed. End Interview asks for confirmation, immediately stops capture and
+playback, and freezes the history of answers already evaluated at the server's
+termination boundary. An evaluation already dispatched may finish externally, but
+its uncommitted result is ignored. Only the frozen history is passed to the
+scorecard generator; unanswered questions are not supplied as zero scores. With
+no evaluated answers, the report displays insufficient evidence without calling
+Gemini. Early scorecards are cached, and refresh or repeated End requests do not
+regenerate them. A failed scorecard can be retried explicitly. Use manual mode to
+return to the original HTML flow before termination.
 
 Raw audio is held in the browser and private server temporary files, deleted on
 success or error. It is not written into conversation journals. **Untranscribed
@@ -182,10 +197,11 @@ For a manual microphone test with deterministic Gemini decisions:
 PYTHONPATH=. venv/bin/python tests/voice_demo.py
 ```
 
-Open `http://127.0.0.1:5001/voice-demo`, optionally turn on the camera, and click
-Start Interview. Answer two main questions and one follow-up. Check initial
-10–15-second thinking time, five-second mid-answer pauses, long-pause continuation,
-standalone commands, pause/repeat and final scorecard. Use manual mode to check
+Open `http://127.0.0.1:5001/voice-demo`, check microphone access and acknowledge
+the instructions, then click Start Interview. The camera check is optional. Answer two main questions and one follow-up. Check initial
+10–15-second initial thinking time, a pause shorter than five seconds followed
+by resumed speech, automatic completion at five seconds, standalone commands,
+pause/repeat, early termination and final scorecard. Use manual mode to check
 record/stop/submit fallback. Real STT/TTS still run in this demo.
 
 `tests/browser_voice.cjs` uses real Chromium, MediaRecorder and Web Audio with
@@ -198,10 +214,10 @@ Playwright Chromium); runtime dependencies are unchanged. For a quick fixture,
 launch the mock server with:
 
 ```bash
-MID_ANSWER_PAUSE_SECONDS=.4 LONG_PAUSE_CONFIRMATION_SECONDS=.8 \
-TURN_CONFIRMATION_GRACE_SECONDS=.5 MIN_ACTIVITY_SECONDS=.1 \
-PLAYBACK_SETTLE_SECONDS=.05 INITIAL_THINKING_PROMPT_SECONDS=2 \
-POLL_INTERVAL_MS=50 PYTHONPATH=. venv/bin/python tests/voice_demo.py
+END_OF_ANSWER_SILENCE_SECONDS=1.5 COMMAND_CHECKPOINT_SECONDS=.4 \
+MIN_ACTIVITY_SECONDS=.1 PLAYBACK_SETTLE_SECONDS=.05 \
+INITIAL_THINKING_PROMPT_SECONDS=2 POLL_INTERVAL_MS=50 \
+PYTHONPATH=. venv/bin/python tests/voice_demo.py
 ```
 
 Then run `node tests/browser_voice.cjs`. Set `NODE_PATH` if Playwright is installed
@@ -215,10 +231,11 @@ A separate **opt-in, quota-consuming** real-service check is available in
 generates synthetic candidate speech using edge-tts, and uses real Whisper,
 Gemini evaluation and scorecard generation. It is excluded from test discovery.
 
-### Measured on this checkout, November 2, 2026
+### Earlier real-service measurement, November 2, 2026
 
-29 Python tests, 26 JavaScript tests and eight mock Chromium scenarios passed.
-The duplicate-callback browser case was also run as a targeted regression.
+The controlled real-service result below was measured on the previous 10-second
+confirmation and two-second grace implementation; it does not verify the current
+five-second endpoint. No real Gemini calls were made for the latest change.
 
 A scripted real-service Chromium interview passed with one Start interaction,
 one planned question, two Whisper segments and one automatic scorecard. It used
@@ -241,7 +258,13 @@ These are one-run observations, not a latency guarantee. The real one-question
 fixture has no next-question playback, so it does not establish a real-service
 end-of-speech-to-next-playback number. Mock browser progression measured about
 1.4–1.5 seconds with accelerated .8s + .5s endpoint settings; those numbers include
-mocked providers and must not be represented as production performance.
+mocked providers and must not be represented as production performance. These
+historical endpoint measurements do not apply to the current five-second policy.
+
+For the current policy, mock Chromium tests with synthetic audio observed a
+5,002 ms automatic endpoint and a 1,059 ms spoken-command checkpoint. The latter
+uses a mocked transcription response and excludes real Whisper latency. No Gemini
+API calls were made for the current update.
 
 `window.voiceMetrics` records endpoint, browser upload, STT roundtrip/server time,
 TTS request/generation/playback-start and end-of-speech-to-next-playback timings.
@@ -254,9 +277,12 @@ benchmark. Server STT time includes decode, model access/lock wait and inference
 - Require HTTPS or localhost, MediaRecorder, Web Audio and microphone permission.
   Chromium is tested. Safari/iOS autoplay, codecs, actual microphones, room echo,
   fan/keyboard noise and a wider range of accents need human-device validation.
-- Energy gates and Whisper confidence are imperfect. Quiet speech may need a
-  lower threshold or Done Speaking; constant noise can arm the browser gate but
-  empty/low-quality server transcription cannot advance the interview. No claim
+- The browser uses an audio-level heuristic, not a real-time speech classifier.
+  Brief sounds below the minimum activity duration do not reset the silence timer,
+  but sustained fan or room noise can still be mistaken for speech or delay
+  completion. Whisper's server-side Silero VAD filters empty segments; it cannot
+  guarantee correct live silence detection. Quiet speech may need a lower
+  threshold or Done Speaking. No claim
   of semantic completion or interruption/barge-in support is made.
 - Keep `SECRET_KEY` private and configure private session/journal directories.
   Secure cookies, authentication, CSRF policy, rate limits and TLS belong in the

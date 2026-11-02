@@ -9,6 +9,64 @@
 {% set current = question_number if question_number is number else session.get('current_question', 0) + 1 %}
 {% set completed = current - 1 %}
 <main id="main" class="workspace page-width">
+    <dialog id="interview-instructions" aria-labelledby="instructions-title">
+        <div class="instruction-content">
+            <p class="eyebrow">BEFORE YOU BEGIN</p>
+            <h2 id="instructions-title" tabindex="-1" autofocus>Before Your Interview Begins</h2>
+            <p>Please review these guidelines to ensure a smooth and professional AI interview experience.</p>
+            <section aria-labelledby="instructions-environment">
+                <h3 id="instructions-environment">1. Interview Environment</h3>
+                <ul>
+                    <li>Sit in a quiet, well-lit room with minimal background noise.</li>
+                    <li>Preferably use headphones or earphones with a microphone.</li>
+                    <li>Avoid loud fans, television, music, and nearby conversations.</li>
+                    <li>Ensure you have a stable internet connection.</li>
+                    <li>Check your microphone and camera before beginning. The camera is optional unless explicitly required.</li>
+                </ul>
+            </section>
+            <section aria-labelledby="instructions-answering">
+                <h3 id="instructions-answering">2. Answering Questions</h3>
+                <ul>
+                    <li>Listen carefully to each question before answering.</li>
+                    <li>Speak clearly and at a natural pace.</li>
+                    <li>You may take time to think before you begin speaking.</li>
+                    <li>Once you start answering, 5 consecutive seconds of silence will automatically finalize and submit your answer.</li>
+                    <li>If you resume speaking before those 5 seconds end, the silence timer resets.</li>
+                    <li>You can also say "I'm done" or click Done Speaking to submit immediately.</li>
+                    <li>Say "Repeat the question" if you want the AI interviewer to repeat the current question.</li>
+                </ul>
+            </section>
+            <section aria-labelledby="instructions-controls">
+                <h3 id="instructions-controls">3. Interview Controls</h3>
+                <ul>
+                    <li>The interview progresses automatically after each completed answer.</li>
+                    <li>The AI may ask an adaptive follow-up question or proceed to the next question.</li>
+                    <li>You can pause and resume the interview when necessary.</li>
+                    <li>You can click End Interview at any time.</li>
+                    <li>Ending early will generate a provisional scorecard based on your completed, evaluated answers.</li>
+                    <li>Unanswered questions will not automatically receive zero scores.</li>
+                </ul>
+            </section>
+            <section aria-labelledby="instructions-privacy">
+                <h3 id="instructions-privacy">4. Privacy</h3>
+                <ul>
+                    <li>Your microphone is used to capture and transcribe spoken answers.</li>
+                    <li>Your camera currently provides a live preview only; video is not recorded or analyzed.</li>
+                </ul>
+            </section>
+            <h3>Before Starting</h3>
+            <div class="recording-controls">
+                <button type="button" id="check-microphone" class="button button-secondary">Check microphone</button>
+                <button type="button" id="check-camera" class="button button-secondary">Check camera</button>
+            </div>
+            <p id="readiness-status" role="status" aria-live="polite">Check your microphone to begin. The camera check is optional.</p>
+            <label class="instruction-acknowledgment"><input type="checkbox" id="instructions-acknowledged"> I have read and understood the interview instructions.</label>
+            <div class="conversation-start">
+                <button type="button" id="begin-instructions" class="button button-primary" disabled>Start Interview {{ icon('arrow') }}</button>
+                <button type="button" id="instructions-manual" class="button button-text">Use manual mode</button>
+            </div>
+        </div>
+    </dialog>
     <div class="workspace-heading">
         <div>
             <p class="eyebrow">THE INTERVIEW ROOM</p>
@@ -163,6 +221,7 @@
 <script id="voice-config" type="application/json">{{ voice_config|tojson }}</script>
 <script src="{{ url_for('static', filename='js/voice-turns.js') }}"></script>
 <script src="{{ url_for('static', filename='js/voice.js') }}"></script>
+<script src="{{ url_for('static', filename='js/interview-instructions.js') }}"></script>
 <script src="{{ url_for('static', filename='js/conversation.js') }}"></script>
 <script src="{{ url_for('static', filename='js/camera.js') }}"></script>
 {% endblock %}

@@ -1698,3 +1698,27 @@ body[data-interview-mode=voice] #start-interview:disabled { display: none; }
 body[data-interview-mode=manual] .conversation-start #start-interview { font-size: 12px; padding: 10px 14px; }
 body[data-interview-mode=voice] .answer-heading { margin-bottom: 8px; }
 #thinking-message { font-size: 13px; line-height: 1.6; }
+
+#interview-instructions {
+    max-width: min(620px, calc(100vw - 32px));
+    border: 1px solid var(--input-line);
+    border-radius: 12px;
+    padding: 0;
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+    color: var(--ink);
+    background: #fcfbf7;
+}
+#interview-instructions::backdrop { background: rgba(25, 31, 28, .58); }
+.instruction-content { padding: 32px; }
+.instruction-content h2 { margin: 10px 0 16px; }
+.instruction-content p { line-height: 1.6; margin-bottom: 16px; }
+#readiness-status { color: var(--muted); font-size: 12px; min-height: 20px; }
+
+.instruction-content section { margin: 18px 0; }
+.instruction-content h3 { font-size: 15px; margin-bottom: 8px; }
+.instruction-content ul { padding-left: 22px; }
+.instruction-content li { font-size: 13px; line-height: 1.6; margin-bottom: 3px; }
+.instruction-acknowledgment { display: flex; gap: 9px; align-items: flex-start; margin: 18px 0; font-size: 13px; }
+.instruction-acknowledgment input { margin-top: 4px; }
+.performance-overview.insufficient-evidence { display: block; }

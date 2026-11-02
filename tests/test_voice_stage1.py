@@ -43,6 +43,9 @@ class CompletionTests(unittest.TestCase):
         result = self.transcribe([segment("I'm done.")], True)
         self.assertEqual(result["transcript"], "")
         self.assertTrue(result["completion_detected"])
+        result = self.transcribe([segment("I built a project."), segment("I'm done.")], True)
+        self.assertEqual(result["transcript"], "I built a project.")
+        self.assertEqual(result["raw_transcript"], "I built a project. I'm done.")
         result = self.transcribe([segment("I'm done.", logprob=-1)], True)
         self.assertEqual(result["transcript"], "I'm done.")
         self.assertFalse(result["completion_detected"])
@@ -93,11 +96,13 @@ class VoiceRouteTests(unittest.TestCase):
             for path in ("/start-interview", "/follow-up"):
                 page = client.get(path)
                 self.assertEqual(page.status_code, 200)
-                for control in (b'automatic-voice', b'Done Speaking', b'pause-voice', b'voice-turns.js', b'candidate-video'):
+                for control in (b'automatic-voice', b'Done Speaking', b'pause-voice', b'voice-turns.js', b'candidate-video',
+                                b'Before Your Interview Begins', b'instructions-acknowledged', b'check-microphone', b'check-camera',
+                                b'I have read and understood the interview instructions.'):
                     self.assertIn(control, page.data)
                 self.assertNotIn(b'id="automatic-voice" checked', page.data)
 
     def test_settings_reject_invalid_thresholds(self):
-        for overrides in ({"MID_ANSWER_PAUSE_SECONDS": "11"}, {"AUDIO_LEVEL_THRESHOLD": "nan"}, {"MAX_CAPTURE_SECONDS": "-1"}):
+        for overrides in ({"COMMAND_CHECKPOINT_SECONDS": "11"}, {"AUDIO_LEVEL_THRESHOLD": "nan"}, {"MAX_CAPTURE_SECONDS": "-1"}):
             with patch.dict(os.environ, overrides), self.assertRaises(ValueError):
                 voice_config()

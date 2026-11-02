@@ -9,7 +9,7 @@ from threading import Lock
 
 from faster_whisper import WhisperModel
 from app.voice_config import voice_config
-from app.services.voice_commands import command_for
+from app.services.voice_commands import command_for, without_completion
 
 _model = None
 _model_lock = Lock()
@@ -32,7 +32,7 @@ def get_whisper_model():
 
 
 def completion_result(segments, settings):
-    """Only a confident, standalone uploaded utterance may be a command.
+    """Only a confident standalone command or final completion sentence counts.
 
     Decoder scores are conservative gates, not calibrated probabilities of user
     intent. Quoted commands and confident hallucinations can still fool STT.
@@ -129,7 +129,7 @@ def transcribe_audio(audio_file, detect_completion=False):
                           speech_detected=True, voiced_seconds=round(getattr(info, "duration_after_vad", 0), 3),
                           whisper_ms=round((time.perf_counter() - started) * 1000, 2))
             if command:
-                result["transcript"] = ""
+                result["transcript"] = without_completion(transcript) if command == "complete" else ""
         return result
 
     finally:

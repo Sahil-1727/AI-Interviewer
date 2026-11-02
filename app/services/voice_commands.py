@@ -1,4 +1,4 @@
-"""Conservative control phrases; never substring-match technical answers."""
+"""Recognize standalone controls and a separate final completion sentence."""
 import re
 
 COMMANDS = {
@@ -6,6 +6,10 @@ COMMANDS = {
     "think": {"give me a moment", "let me think", "i need more time", "give me a moment please"},
     "repeat": {"can you repeat the question", "please repeat the question", "repeat the question", "could you repeat the question"},
 }
+
+# A final separate sentence is accepted, while quoted phrases and phrases
+# embedded in a sentence remain part of the candidate's answer.
+COMPLETION_SUFFIX = re.compile(r"(?i)(?<=[.!?])\s+(?:i['’]m done|i am done)[.!?\s]*$")
 
 
 def normalize(text):
@@ -21,6 +25,9 @@ def command_for(segments, settings):
     if not confident:
         return None
     whole = normalize(' '.join(segment.text for segment in segments))
+    text = ' '.join(segment.text.strip() for segment in segments)
+    if COMPLETION_SUFFIX.search(text):
+        return 'complete'
     for command, phrases in COMMANDS.items():
         # A command must occupy the WHOLE uploaded utterance. Never remove an
         # embedded or suffix phrase from an ordinary technical answer. Earlier
@@ -28,3 +35,7 @@ def command_for(segments, settings):
         if whole in phrases:
             return command
     return None
+
+
+def without_completion(text):
+    return COMPLETION_SUFFIX.sub('', text).strip() if COMPLETION_SUFFIX.search(text) else ''

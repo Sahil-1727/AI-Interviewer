@@ -25,11 +25,12 @@ class VoiceAudioTests(unittest.TestCase):
     def segment(self, text):
         return SimpleNamespace(text=text, avg_logprob=-.1, no_speech_prob=.01)
 
-    def test_whole_utterance_commands_only(self):
+    def test_standalone_commands_and_separate_completion_sentence(self):
         for phrase, command in [("That's all.", 'complete'), ('Give me a moment.', 'think'),
                                 ('Let me think.', 'think'), ('Can you repeat the question?', 'repeat')]:
             self.assertEqual(command_for([self.segment(phrase)], DEFAULTS), command)
-        for parts in (["My example.", "I'm done."], ['I would say let me think before debugging.'],
+        self.assertEqual(command_for([self.segment("My example."), self.segment("I'm done.")], DEFAULTS), 'complete')
+        for parts in (['I would say let me think before debugging.'],
                       ['The log message says that is all.'], ['Can you repeat the question in an interview is a reasonable request.']):
             self.assertIsNone(command_for([self.segment(text) for text in parts], DEFAULTS))
 

@@ -125,7 +125,28 @@ class ConversationService:
     def get(self, identity):
         with self.journal.edit(identity) as state:
             self._recover_stale(state)
+        self._schedule_early_scorecard(identity)
+        with self.journal.edit(identity) as state:
             return deepcopy(state)
+
+    def _schedule_early_scorecard(self, identity):
+        """Claim a single scorecard job after termination; polling retries admission."""
+        request_id = None
+        with self.journal.edit(identity) as state:
+            if state.get("status") != "ending" or not self.slots.acquire(blocking=False):
+                return
+            request_id = uuid4().hex
+            state["jobs"][request_id] = {
+                "digest": "early-scorecard", "turn_id": state["turn_id"],
+                "answer": state["draft"], "stage": "scorecard", "status": "queued",
+                "updated_at": time.time(),
+            }
+            state.update(status="scoring", active_request=request_id, retry_stage="scorecard")
+        try:
+            self.executor.submit(self._run, identity, request_id)
+        except Exception:
+            self.slots.release()
+            self._error(identity, request_id, "Scorecard processing could not start. Retry processing.")
 
     def accept(self, identity, payload, retry=False):
         turn_id, request_id, answer = payload.get("turn_id"), payload.get("request_id"), payload.get("answer")
@@ -137,6 +158,8 @@ class ConversationService:
         digest = hashlib.sha256(json.dumps([turn_id, answer]).encode()).hexdigest()
         with self.journal.edit(identity) as state:
             self._recover_stale(state)
+            if state.get("end_requested") and not (retry and state.get("retry_stage") == "scorecard"):
+                raise ConversationError("This interview has ended.")
             prior = state["jobs"].get(request_id)
             if prior:
                 if prior["digest"] != digest:
@@ -236,19 +259,33 @@ class ConversationService:
                 if state["status"] in {"ended", "manual", "completed"} or state.get("end_requested"):
                     raise ConversationError("This conversation has ended.")
                 state["paused"] = action == "pause"
-            elif action in {"end", "manual"}:
+            elif action == "end":
+                if not state.get("end_requested") and state["status"] != "completed":
+                    state.update(end_requested=True, early_ended=True, paused=True, error=None)
+                    # A scorecard already in flight covers committed history.
+                    if state["status"] != "scoring":
+                        active = state.get("active_request")
+                        if active and state["jobs"][active]["status"] in {"queued", "running"}:
+                            state["jobs"][active]["status"] = "cancelled"
+                        state.pop("active_request", None)
+                        history = [item for item in state.get("interview_history", []) if item.get("evaluation")]
+                        state["interview_history"] = history
+                        if history:
+                            state.update(status="ending", retry_stage="scorecard", draft=history[-1]["answer"])
+                        else:
+                            state.update(status="completed", final_scorecard={"insufficient_evidence": True}, draft="")
+            elif action == "manual":
                 if state["status"] in {"evaluating", "scoring"}:
                     # End stops future progression but doesn't pretend to cancel
                     # an external request already in flight. Manual waits for it.
-                    if action == "manual":
-                        raise ConversationError("Wait for the current response before switching to manual mode.")
-                    state["paused"] = True
-                    state["end_requested"] = True
+                    raise ConversationError("Wait for the current response before switching to manual mode.")
                 else:
-                    state.update(status="ended" if action == "end" else "manual", paused=True)
+                    if state.get("end_requested"):
+                        raise ConversationError("This interview has ended.")
+                    state.update(status="manual", paused=True)
             else:
                 raise ConversationError("Unknown control.", 400)
-            return deepcopy(state)
+        return self.get(identity)
 
 
 def public_state(state):
@@ -261,6 +298,7 @@ def public_state(state):
             "draft": state.get("draft", ""), "error": state.get("error"), "timings": state.get("timings", {}),
             "mock": state["mock"], "version": state.get("version", 0),
             "end_requested": state.get("end_requested", False),
+            "early_ended": state.get("early_ended", False),
             "control_action": state.get("control_action"),
             "scorecard_url": "/final-scorecard" if state["status"] == "completed" else None}
 

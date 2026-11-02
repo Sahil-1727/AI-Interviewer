@@ -212,7 +212,8 @@ def final_scorecard():
         return redirect(url_for("start_interview"))
     interview_history = session.get("interview_history", [])
 
-    if not interview_history:
+    early_ended = bool(state and state.get("early_ended"))
+    if not interview_history and not early_ended:
         return redirect(url_for("home"))
 
     scorecard = session.get("final_scorecard")
@@ -223,7 +224,10 @@ def final_scorecard():
     return render_template(
         "scorecard.html",
         candidate_name=session.get("candidate_name"),
-        scorecard=scorecard
+        scorecard=scorecard,
+        early_ended=early_ended,
+        answered_questions=len(interview_history),
+        planned_questions=len(session.get("interview_plan", {}).get("questions", [])),
     )
 
 

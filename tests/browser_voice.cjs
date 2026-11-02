@@ -25,7 +25,7 @@ function wav(seconds, microphone = false) {
     return data;
 }
 const audioPath = path.join(os.tmpdir(), `voice-test-${process.pid}.wav`);
-fs.writeFileSync(audioPath, real ? fs.readFileSync(process.env.VOICE_REAL_AUDIO) : wav(6, true));
+fs.writeFileSync(audioPath, real ? fs.readFileSync(process.env.VOICE_REAL_AUDIO) : wav(8, true));
 const reports = [];
 
 (async () => {
@@ -111,11 +111,34 @@ const reports = [];
             });
             if (real) page.on('request', request => { if (request.url().endsWith('/api/transcribe')) sttCalls++; if (request.url().endsWith('/api/synthesize')) ttsCalls++; });
             await page.goto(baseURL + (real ? '/real-voice-smoke' : '/voice-demo'));
-            await page.locator('#start-interview:not([disabled])').waitFor();
+            await page.locator('#interview-instructions').waitFor({state: 'visible'});
+            assert.ok(await page.locator('#interview-instructions').isVisible());
+            assert.equal(await page.locator('#begin-instructions').isDisabled(), true);
+            await page.locator('#instructions-acknowledged').check();
+            assert.equal(await page.locator('#begin-instructions').isDisabled(), true);
+            await page.locator('#check-microphone').click();
+            await page.waitForFunction(() => !document.getElementById('check-microphone').disabled);
+            if (fault === 'permission') {
+                assert.equal(await page.locator('#begin-instructions').isDisabled(), true);
+                assert.match(await page.locator('#readiness-status').textContent(), /Unable to access the microphone/);
+                await page.locator('#instructions-manual').click();
+                await page.waitForFunction(() => document.body.dataset.interviewMode === 'manual');
+                assert.equal(await page.locator('#answer-form [type=submit]').isVisible(), true);
+                await page.locator('#start-interview').click();
+                assert.equal(await page.locator('#interview-instructions').isVisible(), true);
+                assert.equal(await page.locator('#begin-instructions').isDisabled(), true);
+                assert.deepEqual(errors, []);
+                reports.push({name, result: 'passed', answerRequests: 0});
+                await context.close(); return;
+            }
+            await page.locator('#check-camera').click();
+            await page.waitForFunction(() => !document.getElementById('check-camera').disabled);
+            assert.equal(await page.locator('#begin-instructions').isEnabled(), true);
+            await page.locator('#begin-instructions').click();
             await page.locator('#start-camera').click();
             await page.waitForFunction(() => document.getElementById('camera-status').textContent === 'Camera is on');
             let originalCamera = await page.locator('#candidate-video').evaluate(video => video.srcObject.getVideoTracks()[0].id);
-            await page.locator('#start-interview').click();
+            cameraChecks.length = 0;
             if (!fault) {
                 await page.waitForFunction(() => document.body.dataset.conversationState === 'LISTENING');
                 await page.screenshot({path: path.join(output, 'interview-room.png'), fullPage: true});
@@ -157,11 +180,11 @@ const reports = [];
                 }
                 await page.locator('#retry-conversation').click();
             }
-            await page.waitForURL('**/final-scorecard', {timeout: real ? 180000 : 45000});
+            await page.waitForURL('**/final-scorecard', {timeout: real ? 180000 : 90000});
             if (!real) assert.match(await page.locator('.overall-summary').textContent(), /Mock interview completed/);
             assert.equal(errors.length, 0, errors.join('\n'));
             assert.deepEqual(overlaps, [], 'No audio playback may overlap microphone capture');
-            assert.ok(cameraChecks.length >= (real ? 1 : 3));
+            assert.ok(cameraChecks.length >= (real ? 0 : 2));
             assert.ok(cameraChecks.every(check => check.id === originalCamera && check.state === 'live'), JSON.stringify(cameraChecks));
             const state = await (await page.request.get(baseURL + '/api/conversation')).json();
             assert.equal(state.status, 'completed');

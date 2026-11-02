@@ -45,6 +45,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
     let lastEndOfSpeech = null;
     let failureKind = null;
     let bootstrapping = true;
+    let terminating = false;
     const metrics = [];
     const completedCaptures = new Set();
     window.voiceMetrics = metrics;
@@ -69,13 +70,15 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
             COMPLETED: 'Complete', ERROR: 'Needs attention'
         }[next];
         if (message) $('voice-status').textContent = message;
-        $('start-interview').disabled = starting || bootstrapping || (active && !paused);
+        $('start-interview').disabled = terminating || starting || bootstrapping || (active && !paused);
         $('start-interview').textContent = active ? 'Resume Interview' : 'Start Interview';
         $('conversation-recovery').hidden = !['ERROR', 'RECOVERING'].includes(next);
         $('retry-conversation').textContent = snapshot?.status === 'error' ? 'Retry processing' : 'Reconnect / retry';
-        $('pause-voice').disabled = !active || next === 'COMPLETED';
+        $('pause-voice').disabled = terminating || !active || next === 'COMPLETED';
         $('pause-voice').textContent = paused ? 'Resume' : 'Pause Interview';
-        $('end-interview').disabled = !active || next === 'COMPLETED';
+        $('end-interview').disabled = terminating || !active || next === 'COMPLETED';
+        $('end-interview').disabled ||= !snapshot;
+        $('manual-mode').disabled = terminating;
         $('microphone-activity').hidden = !['THINKING', 'LISTENING', 'POSSIBLE_END_OF_TURN'].includes(next);
         answer.readOnly = voice.isBusy() || (active && (next === 'EVALUATING' || ['evaluating', 'scoring'].includes(snapshot?.status)));
     }
@@ -188,15 +191,10 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
         }
         if (state.status === 'completed') {
             pending = null; saveDraft();
+            try { sessionStorage.removeItem('voice-ending:' + state.interview_id); } catch (_) {}
             setState('COMPLETED', 'Your interview is complete. Opening your scorecard…');
             await voice.pause();
             window.location.assign(state.scorecard_url);
-            return;
-        }
-        if (state.status === 'ended' || state.end_requested) {
-            paused = true;
-            setState('PAUSED', 'Interview ended. Your completed answers are saved.');
-            $('start-interview').disabled = true;
             return;
         }
         if (state.status === 'error') {
@@ -206,9 +204,21 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
             setState('ERROR', state.error);
             return;
         }
-        if (state.status === 'evaluating' || state.status === 'scoring') {
+        if (state.status === 'evaluating' || state.status === 'scoring' || state.status === 'ending') {
+            if (state.end_requested) {
+                terminating = true; paused = true;
+                setState('PAUSED', 'Preparing your early interview result.');
+                schedulePoll();
+                return;
+            }
             if (!paused) setState('EVALUATING', state.status === 'scoring' ? 'Preparing your final scorecard.' : 'Considering your answer.');
             else setState('PAUSED', 'Paused. Your saved response is still being processed.');
+            schedulePoll();
+            return;
+        }
+        if (state.status === 'ended' || state.end_requested) {
+            paused = true; terminating = true;
+            setState('PAUSED', 'Interview ended. Preparing your result.');
             schedulePoll();
             return;
         }
@@ -229,7 +239,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
     }
 
     async function postAnswer(payload, retry = false) {
-        if (!active) return;
+        if (!active || (terminating && !retry)) return;
         pending = payload; saveDraft();
         const token = operation;
         setState('EVALUATING', 'Processing your response.');
@@ -264,7 +274,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
             if (state.paused) await api('/control', {action: 'resume'});
             await receive({...state, paused: false});
         } catch (error) { recover(error); }
-        finally { starting = false; $('start-interview').disabled = active && !paused; }
+        finally { starting = false; $('start-interview').disabled = terminating || (active && !paused); }
     }
 
     async function pauseInterview() {
@@ -306,12 +316,15 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
         try {
             setState('RECOVERING', 'Recovering your saved interview.');
             const state = await api();
+            if (terminating && !state.end_requested) return endInterview();
             if (state.status === 'error') {
                 snapshot = state;
                 answer.value = state.draft || answer.value;
-                await api('/control', {action: 'resume'});
+                if (!state.end_requested) await api('/control', {action: 'resume'});
                 paused = false;
                 await postAnswer(newPayload(), true);
+            } else if (state.end_requested) {
+                await receive(state);
             } else {
                 await api('/control', {action: 'resume'});
                 paused = false;
@@ -344,11 +357,28 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
             $('answer-label').textContent = 'Your answer';
         } catch (error) { if (wasActive) recover(error); }
     });
-    $('end-interview').addEventListener('click', async () => {
+    async function endInterview() {
+        terminating = true;
+        paused = true;
+        ++operation;
+        clearTimeout(pollTimer);
+        pending = null;
+        try { sessionStorage.setItem('voice-ending:' + snapshot.interview_id, 'true'); } catch (_) {}
+        voice.discard();
+        setState('PAUSED', 'Ending the interview and preparing your result.');
         try {
-            await pauseInterview();
             await receive(await api('/control', {action: 'end'}));
-        } catch (error) { recover(error); }
+        } catch (error) {
+            failureKind = 'end';
+            setState('RECOVERING', 'Could not reach the interview service. Reconnect to finish ending the interview.');
+        }
+    }
+    $('end-interview').addEventListener('click', () => {
+        if (!window.confirm('End the interview early? Only answers already evaluated will be included. The current unprocessed answer will not be scored.')) {
+            voice.resetSilence();
+            return;
+        }
+        void endInterview();
     });
     document.addEventListener('voice:toggle-pause', () => void (paused ? resumeInterview() : pauseInterview()));
     document.addEventListener('voice:resume', () => void resumeInterview());
@@ -366,7 +396,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
         if (lastEndOfSpeech !== null) { metric('end_of_speech_to_playback_ms', event.detail.at - lastEndOfSpeech); lastEndOfSpeech = null; }
     });
     document.addEventListener('voice:state', event => {
-        if (!active) return;
+        if (!active || terminating) return;
         const {state, message} = event.detail;
         if (machine.state === 'COMPLETED') return;
         if (state === 'error') {
@@ -378,21 +408,21 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
         if (mapped && !['EVALUATING', 'RECOVERING', 'ERROR'].includes(machine.state)) setState(mapped, message);
     });
     document.addEventListener('voice:answer', event => {
-        if (!active || paused || !snapshot || pending || snapshot.status !== 'ready') return;
+        if (!active || terminating || paused || !snapshot || pending || snapshot.status !== 'ready') return;
         if (machine.state !== 'TRANSCRIBING' || voice.isBusy() || completedCaptures.has(event.detail.captureId)) return;
         if (!event.detail.transcript.trim()) return;
         completedCaptures.add(event.detail.captureId);
         void postAnswer(newPayload());
     });
     document.addEventListener('voice:empty', event => {
-        if (active && !paused && machine.state === 'TRANSCRIBING' && !voice.isBusy() && !completedCaptures.has(event.detail.captureId)) {
+        if (active && !terminating && !paused && machine.state === 'TRANSCRIBING' && !voice.isBusy() && !completedCaptures.has(event.detail.captureId)) {
             completedCaptures.add(event.detail.captureId);
             setState('THINKING', "I didn't catch a clear answer. Please try again; we're on the same question.");
             void voice.listen();
         }
     });
     document.addEventListener('voice:limit', event => {
-        if (active) { void pauseInterview(); $('voice-status').textContent = event.detail.message; }
+        if (active && !terminating) { void pauseInterview(); $('voice-status').textContent = event.detail.message; }
     });
     window.addEventListener('pagehide', () => {
         saveDraft(); ++operation; clearTimeout(pollTimer);
@@ -407,17 +437,26 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
             snapshot = state; active = true; paused = true; playedTurn = null;
             voice.setManaged(true); restoreDraft(state); renderQuestion(state);
             document.body.dataset.interviewMode = 'voice';
+            let endIntent = false;
+            try { endIntent = sessionStorage.getItem('voice-ending:' + state.interview_id) === 'true'; } catch (_) {}
             if (state.status === 'completed') await receive(state);
             else {
                 setState('PAUSED', 'Your interview is saved. Select Resume Interview to continue.');
-                if (['evaluating', 'scoring'].includes(state.status)) schedulePoll();
-                if (state.status === 'error') await receive(state);
+                if (endIntent || state.end_requested) {
+                    terminating = true;
+                    if (!state.end_requested) await endInterview();
+                    else await receive(state);
+                } else {
+                    if (['evaluating', 'scoring'].includes(state.status)) schedulePoll();
+                    if (state.status === 'error') await receive(state);
+                }
             }
         } catch (error) {
             if (error.status !== 404 && error.status !== 410) $('voice-status').textContent = 'Connection unavailable. Start again when connected, or choose manual mode.';
         } finally {
             bootstrapping = false;
-            $('start-interview').disabled = starting || (active && !paused);
+            $('start-interview').disabled = terminating || starting || (active && !paused);
+            document.dispatchEvent(new CustomEvent('interview:ready', {detail: {existing: active}}));
         }
     }
     setState('IDLE', 'Start once, then answer naturally. Your interviewer will guide the conversation.');

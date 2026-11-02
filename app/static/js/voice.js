@@ -152,7 +152,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function enqueueSegment(t, savedSegment = null) {
         const segment = savedSegment || capture.segment;
-        if (!savedSegment) segment.revision = t.revision;
+        if (!savedSegment) {
+            segment.revision = t.revision;
+            segment.activityEnd = t.detector.lastActivity;
+        }
         t.pending++;
         // Enqueue before stopping: a synchronous Done/timeout/voice-command
         // race still has exactly one owner for each blob.
@@ -175,14 +178,23 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (t.cancelled || t.failed) return;
                 // Energy may be noise. Whisper's VAD can reject such a segment.
                 if (t.auto && response.status === 400 && result.error === "No speech detected.") {
-                    if (!t.parts.length && !t.baseline && capture && t.revision === segment.revision) {
-                        t.detector.waitForSpeech(performance.now());
-                        state("thinking", "Take your time. Waiting for a clear answer.");
+                    if (capture && t.revision === segment.revision) {
+                        if (t.lastValidatedEnd === null) {
+                            t.detector.waitForSpeech(performance.now());
+                            state("thinking", "Take your time. Waiting for a clear answer.");
+                        } else {
+                            // A later non-speech burst should not extend the
+                            // candidate's last VAD-confirmed speaking time.
+                            t.detector.lastActivity = t.lastValidatedEnd;
+                        }
                     }
                     return;
                 }
                 if (!response.ok) throw new Error(result.error || "Transcription failed.");
                 if (typeof result.transcript !== "string") throw new Error("Invalid transcription response.");
+                t.lastValidatedEnd = segment.activityEnd;
+                t.confirmedSpeech = true;
+                t.awaitingSpeech = false;
                 emit("voice:timing", {stage: "upload_stt_roundtrip_ms", ms: performance.now() - uploadedAt});
                 if (typeof result.transcription_ms === "number") emit("voice:timing", {stage: "transcription_ms", ms: result.transcription_ms});
                 if (result.transcript.trim()) t.parts.push(result.transcript.trim());
@@ -192,6 +204,8 @@ document.addEventListener("DOMContentLoaded", () => {
                     if (result.completion_detected === true) void finish("review");
                     else if (result.command === "think") {
                         t.detector.waitForSpeech(performance.now());
+                        t.lastValidatedEnd = null;
+                        t.awaitingSpeech = true;
                         prompt("Of course. Take your time — I'm here when you're ready.");
                         state("thinking", "Take your time. Nothing will advance until you continue.");
                     } else if (result.command === "repeat") {
@@ -232,7 +246,10 @@ document.addEventListener("DOMContentLoaded", () => {
             ? "Microphone paused. Resume when you're ready; your transcript is kept."
             : t.parts.length ? "Transcript ready. Review and submit it when you're ready, or record more."
                 : "No new speech detected. Record again or type your answer.");
-        if (destination === "review") emit(answer.value.trim() ? "voice:answer" : "voice:empty", {transcript: answer.value.trim(), captureId: t.id});
+        if (destination === "review") {
+            const usable = answer.value.trim() && (force || !t.auto || (t.confirmedSpeech && !t.awaitingSpeech));
+            emit(usable ? "voice:answer" : "voice:empty", {transcript: usable ? answer.value.trim() : "", captureId: t.id});
+        }
     }
 
     async function startCapture(append = false) {
@@ -240,7 +257,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const token = ++epoch;
         const t = {id: token, auto: automatic.checked, baseline: append ? answer.value.trim() : "", parts: [],
             queue: Promise.resolve(), pending: 0, revision: 0, stopping: false, cancelled: false, failed: false, noiseFloor: 0,
-            recovery: new Set(), nextSequence: 0};
+            recovery: new Set(), nextSequence: 0, lastValidatedEnd: null, confirmedSpeech: false, awaitingSpeech: false};
         turn = t;
         acquiring = true;
         prompt(null);
@@ -358,9 +375,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     startSegment(t);
                     controls();
                 }
-            } else if (event === "confirmation") {
-                prompt(`Still thinking? Keep speaking or choose “Still thinking” to continue. Otherwise we'll prepare your transcript in ${config.TURN_CONFIRMATION_GRACE_SECONDS} seconds; we will continue when you finish.`);
-                state("possible_end", "Waiting for you. You can also select Done Speaking.");
             } else if (event === "finish") {
                 void finish("review");
             }
@@ -463,6 +477,19 @@ document.addEventListener("DOMContentLoaded", () => {
         else { prompt(null); state("paused", "Paused. Resume when you're ready."); }
     }
 
+    function discard() {
+        cancelPendingCapture();
+        stopAudio();
+        if (turn) {
+            turn.cancelled = true;
+            turn.request?.abort();
+        }
+        if (capture?.segment.recorder.state === "recording") capture.segment.recorder.stop();
+        releaseCapture();
+        prompt(null);
+        state("paused", "Interview ended. Preparing your result.");
+    }
+
     automatic.addEventListener("change", () => {
         if (automatic.checked) void speakQuestion();
     });
@@ -525,6 +552,8 @@ document.addEventListener("DOMContentLoaded", () => {
         speak: speakQuestion,
         listen: () => startCapture(true),
         pause,
+        discard,
+        resetSilence() { if (capture && turn) turn.detector.keepThinking(performance.now()); },
         finish: () => finish("review", true),
         isCapturing: () => !!capture || acquiring,
         isBusy: () => !!capture || acquiring || !!turn?.pending || !!turn?.stopping,

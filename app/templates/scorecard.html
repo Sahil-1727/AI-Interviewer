@@ -7,8 +7,13 @@
     <div class="report-heading">
         <div>
             <p class="eyebrow">THE NEXT STEP IS YOURS</p>
-            <h1>Your interview <em>insights.</em></h1>
+            <h1>{% if early_ended %}Interview Ended Early{% else %}Your interview <em>insights.</em>{% endif %}</h1>
+            {% if early_ended %}<p>{{ answered_questions }} of {{ planned_questions }} planned questions answered and evaluated. Unanswered questions are not scored.</p>{% endif %}
+            {% if scorecard.insufficient_evidence %}
+            <p class="intro-copy">This interview ended before any answers were evaluated.</p>
+            {% else %}
             <p class="intro-copy">A structured overview of your performance, strengths,<br class="desktop-break"> and opportunities for improvement.</p>
+            {% endif %}
         </div>
         <button type="button" id="print-report" class="button button-secondary">{{ icon('print') }} Print report</button>
     </div>
@@ -19,6 +24,14 @@
         </span>
         <span>PERSONALIZED INTERVIEW REPORT</span>
     </div>
+    {% if scorecard.insufficient_evidence %}
+    <section class="performance-overview insufficient-evidence" aria-labelledby="evidence-heading">
+        <div class="overall-summary">
+            <h2 id="evidence-heading">Insufficient evidence</h2>
+            <p>No answers were evaluated before the interview ended, so no numerical score or recommendation is available.</p>
+        </div>
+    </section>
+    {% else %}
     <section class="performance-overview" aria-labelledby="overall-heading">
         <div class="overall-score">
             <h2 id="overall-heading" class="eyebrow">OVERALL PERFORMANCE</h2>
@@ -111,6 +124,7 @@
             </article>
         </div>
     </section>
+    {% endif %}
     <div class="report-end">
         <div>
             <h2>Keep the momentum.</h2>

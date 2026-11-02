@@ -11,7 +11,7 @@ final scorecard.
 - Personalized technical, project, problem-solving, and behavioral questions.
 - Automated answer evaluation with scores from 0–10 and adaptive follow-ups.
 - Typed answers or microphone recordings transcribed with `faster-whisper`.
-  Transcripts remain editable before submission; transcription currently uses English.
+  Manual-mode transcripts remain editable before submission; transcription uses English.
 - On-demand question audio through `edge-tts`, with playback and stop controls.
 - Hands-free voice interviews: click Start Interview once for automatic listening,
   transcription, evaluation, follow-ups, question playback, and the final scorecard.
@@ -29,7 +29,8 @@ The interview is turn-based:
 1. Enter a candidate name and job description, then upload a PDF resume.
 2. Gemini creates an interview plan; the prompt requests 10–15 questions.
 3. Click **Start Interview** once. After each question finishes playing, answer
-   naturally. The system waits through thinking pauses and advances automatically.
+   naturally. Five seconds of silence after speech finishes an answer and advances
+   automatically; use Pause when you need more time.
    Choose **Use manual mode** for the original typed/record-and-submit workflow.
 4. Gemini evaluates the submitted answer. If a follow-up is needed, answer it
    before advancing to the next main question. Follow-up answers are saved with
@@ -157,8 +158,8 @@ Gemini**, launch a separate process:
 PYTHONPATH=. venv/bin/python tests/voice_demo.py
 ```
 
-Open <http://127.0.0.1:5001/voice-demo>, optionally enable the camera, then click
-**Start Interview**. The fixture asks two main questions and one follow-up and
+Open <http://127.0.0.1:5001/voice-demo>, check the microphone and acknowledge the
+instructions, then click **Start Interview**. The camera check is optional. The fixture asks two main questions and one follow-up and
 opens a mock scorecard automatically. The demo replaces Gemini in that process
 only, including manual form submissions. STT may download its configured Whisper
 model on first use; TTS still needs internet. Run `run.py` normally for real Gemini.

@@ -5,9 +5,8 @@ import os
 
 DEFAULTS = {
     "INITIAL_THINKING_PROMPT_SECONDS": 15,
-    "MID_ANSWER_PAUSE_SECONDS": 5,
-    "LONG_PAUSE_CONFIRMATION_SECONDS": 10,
-    "TURN_CONFIRMATION_GRACE_SECONDS": 10,
+    "END_OF_ANSWER_SILENCE_SECONDS": 5,
+    "COMMAND_CHECKPOINT_SECONDS": 1,
     "AUDIO_SAMPLE_INTERVAL_MS": 50,
     "AUDIO_LEVEL_THRESHOLD": 0.025,
     "MIN_ACTIVITY_SECONDS": 0.25,
@@ -42,8 +41,8 @@ def voice_config():
         if not math.isfinite(value) or (value <= 0 and name not in {"COMPLETION_MIN_LOGPROB", "STT_MIN_LOGPROB"}):
             raise ValueError(f"Invalid voice setting: {name}")
         settings[name] = value
-    if not settings["MID_ANSWER_PAUSE_SECONDS"] < settings["LONG_PAUSE_CONFIRMATION_SECONDS"]:
-        raise ValueError("MID_ANSWER_PAUSE_SECONDS must precede LONG_PAUSE_CONFIRMATION_SECONDS")
+    if settings["COMMAND_CHECKPOINT_SECONDS"] >= settings["END_OF_ANSWER_SILENCE_SECONDS"]:
+        raise ValueError("COMMAND_CHECKPOINT_SECONDS must be below END_OF_ANSWER_SILENCE_SECONDS")
     if settings["AUDIO_LEVEL_THRESHOLD"] >= 1 or settings["COMPLETION_MAX_NO_SPEECH_PROB"] > 1:
         raise ValueError("Audio level and probability settings must be within 0–1")
     if settings["SEGMENT_SECONDS"] >= settings["MAX_SEGMENT_SECONDS"]:
