@@ -1,9 +1,11 @@
 
 import os
 import tempfile
+import re
 from threading import Lock
 
 from faster_whisper import WhisperModel
+from app.voice_config import voice_config
 
 _model = None
 _model_lock = Lock()
@@ -25,7 +27,26 @@ def get_whisper_model():
     return _model
 
 
-def transcribe_audio(audio_file):
+def completion_result(segments, settings):
+    """Only an isolated final Whisper segment may be a completion command.
+
+    Decoder scores are conservative gates, not calibrated probabilities of user
+    intent. Quoted commands and confident hallucinations can still fool STT.
+    """
+    if not segments:
+        return False
+    last = segments[-1]
+    normalized = re.sub(r"[^a-z\s']", "", last.text.lower().replace("’", "'"))
+    normalized = " ".join(normalized.split())
+    commands = {"i'm done", "i am done", "i have finished my answer", "that's the end of my answer"}
+    return (
+        normalized in commands
+        and getattr(last, "avg_logprob", float("-inf")) >= settings["COMPLETION_MIN_LOGPROB"]
+        and getattr(last, "no_speech_prob", 1) <= settings["COMPLETION_MAX_NO_SPEECH_PROB"]
+    )
+
+
+def transcribe_audio(audio_file, detect_completion=False):
     if not audio_file or not audio_file.filename:
         raise ValueError("Audio file is required.")
 
@@ -56,6 +77,7 @@ def transcribe_audio(audio_file):
                 beam_size=1
             )
 
+            segments = list(segments)
             transcript = " ".join(
                 segment.text.strip()
                 for segment in segments
@@ -64,10 +86,15 @@ def transcribe_audio(audio_file):
         if not transcript:
             raise ValueError("No speech detected.")
 
-        return {
+        result = {
             "transcript": transcript,
             "language": info.language
         }
+        if detect_completion:
+            result["completion_detected"] = completion_result(segments, voice_config())
+            if result["completion_detected"]:
+                result["transcript"] = " ".join(segment.text.strip() for segment in segments[:-1]).strip()
+        return result
 
     finally:
         if temp_path and os.path.exists(temp_path):

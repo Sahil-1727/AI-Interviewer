@@ -56,7 +56,7 @@
                     <h2 id="interview-question">{{ question.question }}</h2>
                     <div class="question-bottom">
                         <div class="audio-controls">
-                            <button type="button" id="speak-question" class="button button-text">{{ icon('speaker') }} Listen to question</button>
+                            <button type="button" id="speak-question" class="button button-text">{{ icon('speaker') }} Listen / repeat question</button>
                             <button type="button" id="stop-speaking" class="button button-text muted" disabled>{{ icon('stop') }} Stop audio</button>
                         </div>
                         <span class="tiny-label question-type">{{ question.type|replace('_', ' ') }}</span>
@@ -70,11 +70,17 @@
                 </div>
                 <textarea id="answer" name="answer" rows="6" placeholder="Take a moment to think, then make it your own…" required aria-describedby="answer-help voice-status"></textarea>
                 <div class="recording-toolbar">
+                    <label class="tiny-label"><input type="checkbox" id="automatic-voice"> Automatic voice turns (experimental)</label>
                     <div class="recording-controls">
                         <button type="button" id="start-recording" class="button button-secondary">{{ icon('mic') }} Record answer</button>
-                        <button type="button" id="stop-recording" class="button button-secondary" disabled>{{ icon('stop') }} Stop recording</button>
+                        <button type="button" id="stop-recording" class="button button-secondary" disabled>{{ icon('stop') }} Done Speaking</button>
+                        <button type="button" id="pause-voice" class="button button-secondary" disabled>Pause</button>
                     </div>
                     <p id="voice-status" role="status" aria-live="polite">Voice ready</p>
+                </div>
+                <div id="thinking-prompt" hidden>
+                    <p id="thinking-message" role="status"></p>
+                    <button type="button" id="keep-thinking" class="button button-text">Still thinking — keep listening</button>
                 </div>
                 <div class="answer-submit">
                     <p id="answer-help">Your transcript stays editable.<br>Review your answer before submitting.</p>
@@ -138,6 +144,8 @@
 </main>
 {% endblock %}
 {% block scripts %}
+<script id="voice-config" type="application/json">{{ voice_config|tojson }}</script>
+<script src="{{ url_for('static', filename='js/voice-turns.js') }}"></script>
 <script src="{{ url_for('static', filename='js/voice.js') }}"></script>
 <script src="{{ url_for('static', filename='js/camera.js') }}"></script>
 {% endblock %}

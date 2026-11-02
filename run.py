@@ -15,6 +15,7 @@ from app.services.gemini import (
     generate_final_scorecard
 )
 from app.services.resume_parser import extract_resume_text
+from app.voice_config import voice_config
 
 
 app = Flask(
@@ -36,6 +37,11 @@ app.config.update(
     SESSION_PERMANENT=False,
 )
 Session(app)
+
+
+@app.context_processor
+def experimental_voice_settings():
+    return {"voice_config": voice_config()}
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -237,7 +243,10 @@ def transcribe():
     audio_file = request.files.get("audio")
 
     try:
-        result = transcribe_audio(audio_file)
+        if request.form.get("detect_completion") == "true":
+            result = transcribe_audio(audio_file, detect_completion=True)
+        else:
+            result = transcribe_audio(audio_file)
         return jsonify(result), 200
 
     except ValueError as error:

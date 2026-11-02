@@ -671,6 +671,7 @@ input:hover,textarea:hover {
 }
 .recording-controls {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
 }
 .recording-controls .button {
@@ -853,11 +854,11 @@ progress::-moz-progress-bar {
     font-size: 10px;
     color: var(--muted);
 }
-.interview-page[data-voice-state=recording] #start-recording {
+.interview-page[data-voice-state=listening] #start-recording {
     color: var(--copper);
     opacity: .8;
 }
-.interview-page[data-voice-state=recording] #stop-recording {
+.interview-page[data-voice-state=listening] #stop-recording {
     color: var(--copper);
     border-color: var(--copper);
 }
