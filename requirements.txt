@@ -7,3 +7,8 @@ pypdf
 faster-whisper
 edge-tts
 av==17.1.0
+SQLAlchemy>=2.0,<3
+Flask-SQLAlchemy>=3.1,<4
+Flask-Migrate>=4,<5
+psycopg[binary]>=3.2,<4
+gunicorn>=22,<24
