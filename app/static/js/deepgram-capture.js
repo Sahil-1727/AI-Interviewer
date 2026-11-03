@@ -71,7 +71,7 @@ class DeepgramCapture {
                     this.lastWords = performance.now();
                     o.onState('listening', 'Listening. Natural pauses are welcome.');
                 }
-                o.onTranscript(this.text);
+                o.onTranscript(this.text, this.interim);
                 if (!this.closing && data.final && data.command_confident && /(?:^|[.!?]\s+)(?:i['’]m done|i am done|repeat the question|please repeat the question|can you repeat the question)[.!?\s]*$/i.test(this.text)) this.finish('command');
             } else if (data.type === 'complete') {
                 if (!this.closing || typeof data.transcript !== 'string') return this.fail('Unexpected speech service response.');

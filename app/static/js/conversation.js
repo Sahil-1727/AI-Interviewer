@@ -84,11 +84,11 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
         answer.readOnly = (next === 'IDLE' && document.body.dataset.interviewMode !== 'manual') || voice.isBusy() || (active && (next === 'EVALUATING' || ['evaluating', 'scoring'].includes(snapshot?.status)));
     }
 
-    function saveDraft() {
+    function saveDraft(text = answer.value) {
         if (!snapshot) return;
         try {
             sessionStorage.setItem('voice-interview:' + snapshot.interview_id,
-                JSON.stringify({turn_id: snapshot.turn_id, text: answer.value, pending}));
+                JSON.stringify({turn_id: snapshot.turn_id, text, pending}));
         } catch (_) { /* Storage may be disabled. Server-accepted answers still persist. */ }
     }
 
@@ -390,7 +390,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
     document.addEventListener('voice:resume', () => void resumeInterview());
     document.addEventListener('voice:repeat', () => void repeatQuestion());
     document.addEventListener('voice:hide', () => void pauseInterview());
-    document.addEventListener('voice:draft', () => { if (active) saveDraft(); });
+    document.addEventListener('voice:draft', event => { if (active) saveDraft(event.detail.transcript); });
     document.addEventListener('voice:level', event => { $('microphone-level').value = event.detail.level; });
     document.addEventListener('voice:timing', event => metric(event.detail.stage, event.detail.ms));
     document.addEventListener('voice:endpoint', event => {

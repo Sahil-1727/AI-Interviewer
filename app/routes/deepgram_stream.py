@@ -4,6 +4,7 @@ import json
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlencode, urlsplit
 
 import websocket
@@ -16,6 +17,7 @@ from app.voice_config import voice_config
 
 sock = Sock()
 _slots = threading.BoundedSemaphore(max(1, int(os.getenv('STREAM_MAX_CONNECTIONS_PER_WORKER', '2'))))
+_checks = ThreadPoolExecutor(max_workers=max(1, int(os.getenv('STREAM_MAX_CONNECTIONS_PER_WORKER', '2'))), thread_name_prefix='voice-check')
 MAX_FRAME_BYTES = 256 * 1024
 MAX_STREAM_BYTES = 16 * 1024 * 1024
 
@@ -32,6 +34,12 @@ def _valid_origin(origin, host):
                 and not parsed.path and not parsed.query and not parsed.fragment)
     except (TypeError, ValueError):
         return False
+
+
+def _check_turn(service, identity, session_data, turn_id):
+    service.authorize(identity, session_data)
+    state = service.get(identity)
+    return state['turn_id'] == turn_id and state['status'] == 'ready' and not state.get('paused') and not state.get('end_requested')
 
 
 def _relay(ws):
@@ -81,23 +89,32 @@ def _relay(ws):
                                                header=['Authorization: Token ' + key], timeout=settings['DEEPGRAM_CONNECT_TIMEOUT_SECONDS'])
         upstream.settimeout(.05)
         _send(ws, 'ready')
+        current_app.logger.warning('Speech relay connected to provider.')
         transcript = DeepgramTranscript()
         started = time.monotonic()
         next_check = started + 1
         received = 0
         closing = False
         close_deadline = None
+        pending_check = None
+        check_started = None
+        session_data = {'voice_interview_token': session.get('voice_interview_token')}
         while time.monotonic() - started < settings['MAX_CAPTURE_SECONDS']:
             now = time.monotonic()
             if close_deadline is not None and now >= close_deadline:
                 raise TimeoutError('Final transcript was not confirmed.')
-            if now >= next_check:
-                service.authorize(identity, session)
-                current = service.get(identity)
-                if current['turn_id'] != turn_id or current['status'] != 'ready' or current.get('paused') or current.get('end_requested'):
-                    _send(ws, 'error', message='This interview turn is no longer available.')
-                    break
-                next_check = now + 1
+            if pending_check is not None:
+                if pending_check.done():
+                    if not pending_check.result():
+                        _send(ws, 'error', message='This interview turn is no longer available.')
+                        break
+                    pending_check = None
+                    next_check = now + 1
+                elif now - check_started > settings['REQUEST_TIMEOUT_SECONDS']:
+                    raise TimeoutError('Interview state check timed out.')
+            elif now >= next_check and not closing:
+                pending_check = _checks.submit(_check_turn, service, identity, session_data, turn_id)
+                check_started = now
             incoming = ws.receive(timeout=.05)
             if isinstance(incoming, bytes):
                 if closing or not incoming or len(incoming) > MAX_FRAME_BYTES:
@@ -112,6 +129,7 @@ def _relay(ws):
                     upstream.send(json.dumps({'type': 'CloseStream'}))
                     closing = True
                     close_deadline = time.monotonic() + settings['DEEPGRAM_FINALIZE_TIMEOUT_SECONDS']
+                    current_app.logger.warning('Speech relay requested finalization; audio_bytes=%d.', received)
                 else:
                     raise ValueError('Invalid stream command.')
             try:
@@ -132,18 +150,24 @@ def _relay(ws):
                 _send(ws, 'transcript', transcript=transcript.transcript, interim=transcript.interim,
                       recognized=recognized, final=event.get('is_final') is True, command_confident=confident)
             elif event_type == 'Metadata' and closing:
+                # A pending check may be slow. Answer submission independently
+                # verifies ownership and the current turn before evaluation.
+                current_app.logger.warning('Speech relay finalization confirmed.')
                 _send(ws, 'complete', transcript=transcript.transcript)
                 return
         _send(ws, 'error', message='Speech streaming ended. Please retry the answer.')
     except (ConnectionClosed, websocket.WebSocketConnectionClosedException):
         pass
-    except Exception:
+    except Exception as error:
         # Provider messages may contain sensitive headers; never log them.
+        current_app.logger.warning('Speech relay failed: error_type=%s.', type(error).__name__)
         try:
             _send(ws, 'error', message='Speech streaming failed. Please retry the answer.')
         except Exception:
             pass
     finally:
+        if 'pending_check' in locals() and pending_check is not None:
+            pending_check.cancel()
         if upstream:
             try:
                 upstream.close()

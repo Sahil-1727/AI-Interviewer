@@ -1,10 +1,13 @@
 """Mock WebSocket relay protocol and security; no provider calls."""
 import json
+import threading
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from flask import Flask, session
+import websocket
 
 from app.routes.deepgram_stream import MAX_FRAME_BYTES, _relay
 
@@ -105,3 +108,44 @@ class RelayTests(unittest.TestCase):
         self.assertTrue(upstream.closed)
         self.assertFalse(any(item['type'] == 'complete' for item in socket.sent))
         self.assertEqual(socket.sent[-1]['type'], 'error')
+
+    def test_slow_database_check_does_not_block_audio_finalization(self):
+        gate = threading.Event()
+        checking = threading.Event()
+        ready = {'turn_id': 'turn', 'status': 'ready', 'paused': False}
+        def get_state(identity):
+            if self.service.get.call_count > 1:
+                checking.set()
+                gate.wait(5)
+            return ready
+        self.service.get.side_effect = get_state
+
+        class SlowSocket(Socket):
+            def receive(self, timeout=None):
+                value = super().receive(timeout)
+                if value == b'first':
+                    time.sleep(1.1)
+                elif value == b'second':
+                    self_test.assertTrue(checking.wait(1))
+                return value
+
+        class WaitingUpstream(Upstream):
+            def __init__(self):
+                super().__init__()
+                self.events = []
+            def send(self, data):
+                super().send(data)
+                self.events.append(json.dumps({'type': 'Metadata'}))
+            def recv(self):
+                if self.events:
+                    return self.events.pop(0)
+                raise websocket.WebSocketTimeoutException()
+
+        self_test = self
+        socket = SlowSocket([json.dumps({'csrf': 'valid', 'turn_id': 'turn'}), b'first', b'second', json.dumps({'type': 'finish'})])
+        try:
+            self.relay(socket, upstream=WaitingUpstream())
+            self.assertEqual(socket.sent[-1], {'type': 'complete', 'transcript': ''})
+            self.assertFalse(gate.is_set())
+        finally:
+            gate.set()

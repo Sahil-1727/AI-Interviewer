@@ -75,10 +75,12 @@ document.addEventListener("DOMContentLoaded", () => {
             playback.controller.abort();
             clearTimeout(playback.timeout);
             if (playback.player) {
-                playback.player.onended = playback.player.onerror = null;
+                playback.player.onended = playback.player.onerror = playback.player.ontimeupdate = null;
                 playback.player.pause();
                 playback.player.src = "";
             }
+            const question = $("interview-question");
+            if (playback.questionText && question.textContent === playback.questionText) question.textContent = playback.questionText;
             if (playback.url) URL.revokeObjectURL(playback.url);
             playback = null;
         }
@@ -339,10 +341,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const current = new window.DeepgramCapture({turnId: deepTurnId, config,
             started: playbackEndedAt || performance.now(),
             onState: (next, message) => { if (deepCapture === current) state(next, message); },
-            onTranscript: text => {
+            onTranscript: (text, interim) => {
                 if (deepCapture !== current || deepTurnId !== captureTurnId) return;
-                answer.value = [baseline, text].filter(Boolean).join(' ');
-                emit('voice:draft', {transcript: answer.value});
+                answer.value = [baseline, text, interim].filter(Boolean).join(' ');
+                emit('voice:draft', {transcript: [baseline, text].filter(Boolean).join(' ')});
             },
             onComplete: (text, reason, sawWords) => {
                 if (deepCapture !== current || deepTurnId !== captureTurnId) return;
@@ -366,6 +368,7 @@ document.addEventListener("DOMContentLoaded", () => {
             onError: message => {
                 if (deepCapture !== current) return;
                 deepCapture = null;
+                answer.value = [baseline, current.text].filter(Boolean).join(' ');
                 state('error', message + ' Finalized words are kept; repeat any words not shown when you resume.');
             }});
         deepCapture = current;
@@ -448,14 +451,14 @@ document.addEventListener("DOMContentLoaded", () => {
         if (token !== epoch || document.hidden || form.dataset.submitting === "true") return;
         stopAudio();
         prompt(null);
-        const p = {controller: new AbortController(), requestedAt: performance.now()};
+        const p = {controller: new AbortController(), requestedAt: performance.now(), questionText: $("interview-question").textContent.trim()};
         playback = p;
         p.timeout = setTimeout(() => p.controller.abort(), config.REQUEST_TIMEOUT_SECONDS * 1000);
         state("thinking", "Preparing question audio…");
         try {
             const response = await fetch("/api/synthesize", {
                 method: "POST", signal: p.controller.signal, headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({text: $("interview-question").textContent.trim()})
+                body: JSON.stringify({text: p.questionText})
             });
             if (!response.ok) throw new Error("Question audio generation failed.");
             const blob = await response.blob();
@@ -468,6 +471,33 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!sharedPlayer) sharedPlayer = new Audio();
             p.player = sharedPlayer;
             p.player.src = p.url;
+            // The audio providers don't supply word timestamps. Highlighting is
+            // an estimate based on playback progress, not an exact transcript.
+            const question = $("interview-question");
+            if (typeof document.createElement === "function" && typeof document.createTextNode === "function") {
+                const parts = p.questionText.split(/(\s+)/);
+                const words = [];
+                question.textContent = "";
+                for (const part of parts) {
+                    if (!part) continue;
+                    if (/^\s+$/.test(part)) question.appendChild(document.createTextNode(part));
+                    else {
+                        const span = document.createElement("span");
+                        span.textContent = part;
+                        question.appendChild(span);
+                        words.push(span);
+                    }
+                }
+                let activeWord = -1;
+                p.player.ontimeupdate = () => {
+                    if (playback !== p || !Number.isFinite(p.player.duration) || p.player.duration <= 0 || !words.length) return;
+                    const index = Math.min(words.length - 1, Math.max(0, Math.floor(p.player.currentTime / p.player.duration * words.length)));
+                    if (index === activeWord) return;
+                    if (activeWord >= 0) words[activeWord].classList.remove("spoken-word");
+                    words[index].classList.add("spoken-word");
+                    activeWord = index;
+                };
+            }
             p.player.onended = () => {
                 if (playback !== p) return;
                 stopAudio();

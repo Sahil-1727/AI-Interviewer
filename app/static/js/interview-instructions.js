@@ -2,6 +2,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const dialog = document.getElementById('interview-instructions');
     const start = document.getElementById('start-interview');
     const begin = document.getElementById('begin-instructions');
+    const question = document.getElementById('question-content');
+    function revealQuestion() { question.style.visibility = ''; }
     const status = document.getElementById('readiness-status');
     let generation = 0;
     let checking = false;
@@ -45,7 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
     acknowledged.addEventListener('change', buttons);
     document.getElementById('check-microphone').addEventListener('click', () => void check('microphone'));
     document.getElementById('check-camera').addEventListener('click', () => void check('camera'));
-    begin.addEventListener('click', () => { ++generation; dialog.close(); start.click(); });
+    begin.addEventListener('click', () => { ++generation; dialog.close(); revealQuestion(); start.click(); });
     start.addEventListener('click', event => {
         // Manual mode can be chosen without a microphone. Starting voice from
         // there must still go through the acknowledgment and readiness gate.
@@ -57,10 +59,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }, true);
     document.getElementById('instructions-manual').addEventListener('click', () => {
-        ++generation; dialog.close(); document.getElementById('manual-mode').click();
+        ++generation; dialog.close(); revealQuestion(); document.getElementById('manual-mode').click();
     });
     dialog.addEventListener('cancel', event => event.preventDefault());
     document.addEventListener('interview:ready', event => {
+        if (event.detail.existing) revealQuestion();
         if (!event.detail.existing && typeof dialog.showModal === 'function' && !dialog.open) dialog.showModal();
         buttons();
     });

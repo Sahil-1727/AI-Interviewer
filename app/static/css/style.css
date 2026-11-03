@@ -614,6 +614,11 @@ input:hover,textarea:hover {
     margin: 22px 0 30px;
     overflow-wrap: anywhere;
 }
+.question-content h2 .spoken-word {
+    color: var(--copper-dark);
+    background: var(--tint);
+    border-radius: 3px;
+}
 .followup-note {
     font-size: 11px;
     color: var(--muted);

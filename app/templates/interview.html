@@ -99,7 +99,7 @@
                     </div>
                     <span id="interviewer-state" class="state-pill" role="status">Ready</span>
                 </div>
-                <div class="question-content">
+                <div class="question-content" id="question-content" style="visibility: hidden">
                     <div class="question-meta">
                         <span class="eyebrow" id="question-count">
                             {% if is_followup %}FOLLOW-UP QUESTION{% else %}QUESTION {{ '%02d'|format(current) }}{% if total %}

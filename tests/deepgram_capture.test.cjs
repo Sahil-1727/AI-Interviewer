@@ -30,14 +30,23 @@ function fixture() {
         performance: {now: () => now}, setTimeout: () => 1, clearTimeout() {},
         setInterval: () => 1, clearInterval() {}};
     vm.runInNewContext(fs.readFileSync(require.resolve('../app/static/js/deepgram-capture.js'), 'utf8'), sandbox);
-    const completed = [], states = [];
+    const completed = [], states = [], previews = [];
     const capture = new window.DeepgramCapture({turnId: 'turn', started: 100,
         config: {INITIAL_ANSWER_TIMEOUT_SECONDS: 10, END_OF_ANSWER_SILENCE_SECONDS: 5,
                  MAX_CAPTURE_SECONDS: 600, DEEPGRAM_CONNECT_TIMEOUT_SECONDS: 15, DEEPGRAM_FINALIZE_TIMEOUT_SECONDS: 8},
-        onState: state => states.push(state), onTranscript() {}, onError: error => { throw Error(error); },
+        onState: state => states.push(state), onTranscript: (final, interim) => previews.push({final, interim}), onError: error => { throw Error(error); },
         onComplete: (text, reason, sawWords) => completed.push({text, reason, sawWords})});
-    return {capture, completed, states, socket: () => socket, time: value => { now = value; }};
+    return {capture, completed, states, previews, socket: () => socket, time: value => { now = value; }};
 }
+
+test('interim words are available for preview without becoming finalized text', async () => {
+    const f = fixture(); await f.capture.start(); f.socket().onopen();
+    f.socket().onmessage({data: JSON.stringify({type: 'ready'})});
+    f.socket().onmessage({data: JSON.stringify({type: 'transcript', transcript: 'Final.', interim: 'still speaking', recognized: true})});
+    assert.equal(f.previews[0].final, 'Final.');
+    assert.equal(f.previews[0].interim, 'still speaking');
+    assert.equal(f.capture.text, 'Final.');
+});
 
 test('noise and empty interim results do not count as an answer', async () => {
     const f = fixture(); await f.capture.start(); f.socket().onopen();
