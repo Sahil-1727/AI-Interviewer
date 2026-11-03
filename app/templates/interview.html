@@ -221,6 +221,7 @@
 {% endblock %}
 {% block scripts %}
 <script id="voice-config" type="application/json">{{ voice_config|tojson }}</script>
+<script src="{{ url_for('static', filename='js/deepgram-capture.js') }}"></script>
 <script src="{{ url_for('static', filename='js/voice-turns.js') }}"></script>
 <script src="{{ url_for('static', filename='js/voice.js') }}"></script>
 <script src="{{ url_for('static', filename='js/interview-instructions.js') }}"></script>

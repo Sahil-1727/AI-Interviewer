@@ -66,13 +66,27 @@ happen on the server. This is HTTP endpointing, not streaming token generation.
 Settings are validated in `app/voice_config.py`, overridable through `.env` or
 exported environment variables. Restart Flask after changing them.
 
-The experimental `feature/free-deployment` branch can select Aura-2 speech
-output with `TTS_PROVIDER=deepgram`, `DEEPGRAM_API_KEY`, and optionally
-`DEEPGRAM_TTS_MODEL` (default `aura-2-thalia-en`). The default remains
-`TTS_PROVIDER=edge`. This is TTS only: Deepgram streaming STT is not yet wired
-to the browser, and `STT_PROVIDER=whisper` remains the only supported STT
-setting. Selecting another STT provider fails rather than silently using Whisper.
-Provider tests use mocked HTTP and do not demonstrate live Deepgram audio or latency.
+The experimental `feature/free-deployment` branch can select `STT_PROVIDER=deepgram`
+and `TTS_PROVIDER=deepgram` with a server-side `DEEPGRAM_API_KEY`. Models default
+to `nova-3` and `aura-2-thalia-en`. Local defaults remain `whisper` and `edge`.
+In automatic voice mode the browser streams audio to the same-origin Flask
+WebSocket relay, which verifies the session, CSRF token and current turn before
+connecting to Deepgram. Finalized results are flushed before submission; VAD
+signals alone do not submit answers. On interruption, finalized text is kept;
+the user must resume and repeat any unfinalized words. Streaming cannot guarantee
+perfect recognition or reject every background sound. Deepgram mode currently
+supports automatic voice turns; recorded-audio transcription in manual mode still
+requires `STT_PROVIDER=whisper` (typed manual answers work in either mode).
+`DEEPGRAM_COMMAND_MIN_CONFIDENCE` controls whether a final command is acted on;
+connection and finalization timeouts are configurable with
+`DEEPGRAM_CONNECT_TIMEOUT_SECONDS` and `DEEPGRAM_FINALIZE_TIMEOUT_SECONDS`.
+Whisper is not silently substituted for a selected Deepgram provider.
+
+Flask-Sock needs a WebSocket-capable server. `gunicorn.conf.py` uses `gthread`,
+and `STREAM_MAX_CONNECTIONS_PER_WORKER` defaults to two; each active socket
+occupies a worker thread, so keep extra threads for HTTP and size workers for
+expected concurrency. Mocked browser tests do not establish live Deepgram
+recognition accuracy, real-world latency, or hosted proxy compatibility.
 
 | Setting | Default | Meaning |
 | --- | ---: | --- |

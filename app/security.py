@@ -27,18 +27,19 @@ def init_security(app):
 
     @app.before_request
     def protect_state_changes():
-        if request.method not in {'POST', 'PUT', 'PATCH', 'DELETE'}:
+        streaming = request.path == '/api/voice/stream' and request.method == 'GET'
+        if request.method not in {'POST', 'PUT', 'PATCH', 'DELETE'} and not streaming:
             return None
         if app.config['RATE_LIMIT_ENABLED'] and os.getenv('DATABASE_URL'):
             from app.database import db
             path = request.path
-            limit = int(os.getenv('RATE_LIMIT_AUDIO_PER_MINUTE', '30') if path in {'/api/transcribe', '/api/synthesize'}
+            limit = int(os.getenv('RATE_LIMIT_AUDIO_PER_MINUTE', '30') if path in {'/api/transcribe', '/api/synthesize', '/api/voice/stream'}
                         else os.getenv('RATE_LIMIT_INTERVIEW_PER_MINUTE', '60'))
             if limit < 1:
                 raise ValueError('Rate limit must be positive.')
             bucket = int(time.time()) // 60
             key = hashlib.sha256((request.remote_addr or 'unknown').encode()).hexdigest()
-            category = 'audio' if path in {'/api/transcribe', '/api/synthesize'} else 'interview'
+            category = 'audio' if path in {'/api/transcribe', '/api/synthesize', '/api/voice/stream'} else 'interview'
             try:
                 with db.engine.begin() as connection:
                     count = connection.execute(text('''INSERT INTO request_limits (client_hash, category, bucket, count)
@@ -53,7 +54,7 @@ def init_security(app):
                     return response
             except Exception:
                 return jsonify(error='Service temporarily unavailable.'), 503
-        if app.config['CSRF_ENABLED']:
+        if app.config['CSRF_ENABLED'] and not streaming:
             expected = session.get('_csrf_token')
             supplied = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token')
             if not isinstance(expected, str) or not isinstance(supplied, str) or not hmac.compare_digest(expected, supplied):

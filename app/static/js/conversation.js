@@ -170,6 +170,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
             voice.reset();
         }
         snapshot = state;
+        voice.setTurn?.(state.turn_id);
         renderQuestion(state);
         for (const [stage, ms] of Object.entries(state.timings || {})) metric(stage, ms);
         if (state.control_action) {
@@ -356,7 +357,9 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
             voice.setManaged(false);
             document.body.dataset.interviewMode = 'manual';
             try { sessionStorage.setItem(manualModeKey, 'true'); } catch (_) {}
-            setState('IDLE', 'Manual mode. Type or record an answer, then review and submit it.');
+            setState('IDLE', config.STT_PROVIDER === 'deepgram'
+                ? 'Manual mode. Type your answer. Manual recording requires the Whisper provider.'
+                : 'Manual mode. Type or record an answer, then review and submit it.');
             $('answer-label').textContent = 'Your answer';
         } catch (error) { if (wasActive) recover(error); }
     });
@@ -412,6 +415,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
     });
     document.addEventListener('voice:answer', event => {
         if (!active || terminating || paused || !snapshot || pending || snapshot.status !== 'ready') return;
+        if (event.detail.turnId && event.detail.turnId !== snapshot.turn_id) return;
         if (machine.state !== 'TRANSCRIBING' || voice.isBusy() || completedCaptures.has(event.detail.captureId)) return;
         if (!event.detail.transcript.trim()) return;
         completedCaptures.add(event.detail.captureId);
@@ -419,6 +423,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
     });
     document.addEventListener('voice:unanswered', event => {
         if (!active || terminating || paused || !snapshot || pending || snapshot.status !== 'ready' || completedCaptures.has(event.detail.captureId)) return;
+        if (event.detail.turnId && event.detail.turnId !== snapshot.turn_id) return;
         completedCaptures.add(event.detail.captureId);
         void postAnswer({...newPayload(), answer: '', unanswered: true});
     });
@@ -466,7 +471,9 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
                 if (restoredManual) {
                     document.body.dataset.interviewMode = 'manual';
                     voice.setManaged(false);
-                    setState('IDLE', 'Manual mode. Type or record an answer, then review and submit it.');
+                    setState('IDLE', config.STT_PROVIDER === 'deepgram'
+                        ? 'Manual mode. Type your answer. Manual recording requires the Whisper provider.'
+                        : 'Manual mode. Type or record an answer, then review and submit it.');
                     $('answer-label').textContent = 'Your answer';
                 }
             } else if (error.status !== 410) $('voice-status').textContent = 'Connection unavailable. Start again when connected, or choose manual mode.';

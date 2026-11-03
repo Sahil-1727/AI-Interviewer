@@ -19,6 +19,9 @@ document.addEventListener("DOMContentLoaded", () => {
     let epoch = 0;
     let playback = null;
     let settleTimer = null;
+    let deepCapture = null;
+    let deepTurnId = null;
+    let playbackEndedAt = null;
 
     function closeContext(context) {
         if (context && context.state !== "closed") void context.close().catch(() => {});
@@ -32,13 +35,15 @@ document.addEventListener("DOMContentLoaded", () => {
     // owns automatic evaluation, navigation and server turn identifiers.
     function controls() {
         const submitting = form.dataset.submitting === "true";
-        const busy = acquiring || !!capture || !!settleTimer || !!turn?.pending || !!turn?.stopping;
+        const busy = acquiring || !!capture || !!deepCapture || !!settleTimer || !!turn?.pending || !!turn?.stopping;
         form.dataset.voiceBusy = String(busy);
         form.querySelector('[type="submit"]').disabled = busy || submitting || managed;
         answer.readOnly = busy;
-        recordBtn.disabled = busy || !!playback || submitting;
-        doneBtn.disabled = !capture || submitting;
-        pauseBtn.disabled = submitting || (!capture && !acquiring && !settleTimer && phase !== "paused" && !playback);
+        const manualStreamingUnavailable = !managed && config.STT_PROVIDER === 'deepgram';
+        recordBtn.disabled = busy || !!playback || submitting || manualStreamingUnavailable;
+        recordBtn.title = manualStreamingUnavailable ? 'Manual recording requires the Whisper provider; type your answer or use automatic voice mode.' : '';
+        doneBtn.disabled = (!capture && (!deepCapture?.providerReady || deepCapture?.recorder?.state !== 'recording')) || submitting;
+        pauseBtn.disabled = submitting || (!capture && !deepCapture && !acquiring && !settleTimer && phase !== "paused" && !playback);
         pauseBtn.textContent = phase === "paused" ? "Resume" : "Pause";
         speakBtn.disabled = acquiring || !!turn?.stopping || !!turn?.pending || !!playback || submitting;
         automatic.disabled = busy || !!playback || submitting;
@@ -258,6 +263,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     async function startCapture(append = false) {
+        if (managed && config.STT_PROVIDER === 'deepgram') return startDeepgramCapture(append);
         if (capture || acquiring || playback || settleTimer !== null || turn?.pending || turn?.stopping || form.dataset.submitting === "true") return;
         const token = ++epoch;
         const t = {id: token, auto: automatic.checked, baseline: append ? answer.value.trim() : "", parts: [],
@@ -323,6 +329,50 @@ document.addEventListener("DOMContentLoaded", () => {
         } finally {
             if (token === epoch) { acquiring = false; acquiringContext = null; controls(); }
         }
+    }
+
+    async function startDeepgramCapture(append) {
+        if (deepCapture || capture || acquiring || playback || settleTimer !== null || !deepTurnId) return;
+        const id = ++epoch;
+        const captureTurnId = deepTurnId;
+        const baseline = append ? answer.value.trim() : '';
+        const current = new window.DeepgramCapture({turnId: deepTurnId, config,
+            started: playbackEndedAt || performance.now(),
+            onState: (next, message) => { if (deepCapture === current) state(next, message); },
+            onTranscript: text => {
+                if (deepCapture !== current || deepTurnId !== captureTurnId) return;
+                answer.value = [baseline, text].filter(Boolean).join(' ');
+                emit('voice:draft', {transcript: answer.value});
+            },
+            onComplete: (text, reason, sawWords) => {
+                if (deepCapture !== current || deepTurnId !== captureTurnId) return;
+                deepCapture = null;
+                let command = null;
+                const match = reason === 'command' && text.match(/(?:^|[.!?]\s+)(i['’]m done|i am done|repeat the question|please repeat the question|can you repeat the question)[.!?\s]*$/i);
+                if (match) {
+                    command = /repeat/i.test(match[1]) ? 'repeat' : 'complete';
+                    text = text.slice(0, match.index).trim();
+                }
+                answer.value = [baseline, text].filter(Boolean).join(' ');
+                emit('voice:draft', {transcript: answer.value});
+                controls();
+                if (reason === 'paused') { state('paused', 'Interview paused. Your transcript is kept.'); return; }
+                state('transcribing', 'Transcript ready.');
+                if (command === 'repeat') { emit('voice:repeat'); return; }
+                if (answer.value.trim()) emit('voice:answer', {transcript: answer.value.trim(), captureId: id, turnId: captureTurnId});
+                else if (reason === 'unanswered' && !command && !sawWords) emit('voice:unanswered', {captureId: id, turnId: captureTurnId});
+                else emit('voice:empty', {transcript: '', captureId: id});
+            },
+            onError: message => {
+                if (deepCapture !== current) return;
+                deepCapture = null;
+                state('error', message + ' Finalized words are kept; repeat any words not shown when you resume.');
+            }});
+        deepCapture = current;
+        playbackEndedAt = null;
+        state('thinking', 'Connecting speech recognition…');
+        try { await current.start(); }
+        catch (error) { current.fail(error.message); }
     }
 
     function sample(t) {
@@ -393,6 +443,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const token = epoch;
         // Repeat saves the captured answer before playback; hardware cannot be
         // open during either synthesis or the interviewer's audio.
+        if (deepCapture) { const previous = deepCapture; await previous.finishAndWait('paused'); if (deepCapture === previous) deepCapture = null; }
         if (capture) await finish("paused");
         if (token !== epoch || document.hidden || form.dataset.submitting === "true") return;
         stopAudio();
@@ -420,6 +471,7 @@ document.addEventListener("DOMContentLoaded", () => {
             p.player.onended = () => {
                 if (playback !== p) return;
                 stopAudio();
+                playbackEndedAt = performance.now();
                 if (automatic.checked) {
                     // Allow speaker/reverb tails to settle before opening the mic.
                     settleTimer = setTimeout(() => {
@@ -480,6 +532,7 @@ document.addEventListener("DOMContentLoaded", () => {
     async function pause() {
         cancelPendingCapture();
         stopAudio();
+        if (deepCapture) { const previous = deepCapture; await previous.finishAndWait('paused'); if (deepCapture === previous) deepCapture = null; }
         if (capture) await finish("paused");
         else { prompt(null); state("paused", "Paused. Resume when you're ready."); }
     }
@@ -487,6 +540,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function discard() {
         cancelPendingCapture();
         stopAudio();
+        if (deepCapture) { deepCapture.cancel(); deepCapture = null; }
         if (turn) {
             turn.cancelled = true;
             turn.request?.abort();
@@ -507,7 +561,7 @@ document.addEventListener("DOMContentLoaded", () => {
         state("paused", "Question audio stopped. Resume or select Record answer when ready.");
     });
     recordBtn.addEventListener("click", () => managed ? emit("voice:resume") : void startCapture(automatic.checked || phase === "paused"));
-    doneBtn.addEventListener("click", () => void finish("review", true));
+    doneBtn.addEventListener("click", () => deepCapture ? deepCapture.finish('manual') : void finish("review", true));
     pauseBtn.addEventListener("click", () => managed ? emit("voice:toggle-pause") : phase === "paused" ? void startCapture(true) : void pause());
     $("keep-thinking").addEventListener("click", () => {
         if (!capture) return;
@@ -524,13 +578,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     document.addEventListener("visibilitychange", () => {
         // Background timer throttling must not masquerade as a long silence.
-        if (document.hidden && (capture || acquiring || playback || settleTimer !== null)) {
+        if (document.hidden && (capture || deepCapture || acquiring || playback || settleTimer !== null)) {
             if (managed) emit("voice:hide"); else void pause();
         }
     });
     window.addEventListener("pagehide", () => {
         cancelPendingCapture();
         stopAudio();
+        if (deepCapture) { deepCapture.cancel(); deepCapture = null; }
         if (turn) {
             turn.cancelled = true;
             turn.request?.abort();
@@ -546,6 +601,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
     window.InterviewVoice = {
+        setTurn(value) { deepTurnId = value; },
         setManaged(value) { managed = value; automatic.checked = value; controls(); },
         async unlock() {
             // Reuse one element across questions, including Safari's playback
@@ -560,13 +616,13 @@ document.addEventListener("DOMContentLoaded", () => {
         listen: () => startCapture(true),
         pause,
         discard,
-        resetSilence() { if (capture && turn) turn.detector.keepThinking(performance.now()); },
+        resetSilence() { if (capture && turn) turn.detector.keepThinking(performance.now()); if (deepCapture) deepCapture.lastWords = performance.now(); },
         finish: () => finish("review", true),
-        isCapturing: () => !!capture || acquiring,
-        isBusy: () => !!capture || acquiring || !!turn?.pending || !!turn?.stopping,
+        isCapturing: () => !!capture || !!deepCapture || acquiring,
+        isBusy: () => !!capture || !!deepCapture || acquiring || !!turn?.pending || !!turn?.stopping,
         hasRecovery: () => !!turn?.recovery.size,
         retryTranscription,
-        reset() { turn = null; prompt(null); state("ready", "Ready for the next question."); },
+        reset() { if (deepCapture) { deepCapture.cancel(); deepCapture = null; } turn = null; prompt(null); state("ready", "Ready for the next question."); },
     };
     state("ready", "Start a hands-free interview, or use the manual controls.");
 });

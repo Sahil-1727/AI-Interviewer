@@ -34,6 +34,9 @@ DEFAULTS = {
     "STT_MIN_LOGPROB": -1,
     "STT_MAX_NO_SPEECH_PROB": 0.6,
     "WHISPER_BEAM_SIZE": 3,
+    "DEEPGRAM_COMMAND_MIN_CONFIDENCE": 0.85,
+    "DEEPGRAM_CONNECT_TIMEOUT_SECONDS": 15,
+    "DEEPGRAM_FINALIZE_TIMEOUT_SECONDS": 8,
 }
 
 
@@ -46,7 +49,7 @@ def voice_config():
         settings[name] = value
     if settings["COMMAND_CHECKPOINT_SECONDS"] >= settings["END_OF_ANSWER_SILENCE_SECONDS"]:
         raise ValueError("COMMAND_CHECKPOINT_SECONDS must be below END_OF_ANSWER_SILENCE_SECONDS")
-    if settings["AUDIO_LEVEL_THRESHOLD"] >= 1 or settings["COMPLETION_MAX_NO_SPEECH_PROB"] > 1:
+    if settings["AUDIO_LEVEL_THRESHOLD"] >= 1 or settings["COMPLETION_MAX_NO_SPEECH_PROB"] > 1 or settings["DEEPGRAM_COMMAND_MIN_CONFIDENCE"] > 1:
         raise ValueError("Audio level and probability settings must be within 0–1")
     if settings["SEGMENT_SECONDS"] >= settings["MAX_SEGMENT_SECONDS"]:
         raise ValueError("SEGMENT_SECONDS must be below MAX_SEGMENT_SECONDS")

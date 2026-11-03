@@ -32,6 +32,7 @@ app = Flask(
     static_folder="app/static"
 )
 app.config["MAX_CONTENT_LENGTH"] = int(os.getenv('MAX_REQUEST_BYTES', str(12 * 1024 * 1024)))
+app.config['SOCK_SERVER_OPTIONS'] = {'max_message_size': 256 * 1024, 'ping_interval': 25}
 if app.config['MAX_CONTENT_LENGTH'] <= 0:
     raise RuntimeError('MAX_REQUEST_BYTES must be positive.')
 
@@ -92,6 +93,8 @@ app.extensions["conversation"] = ConversationService(
     voice_config(), journal=voice_journal,
 )
 app.register_blueprint(conversation_bp)
+from app.routes.deepgram_stream import sock
+sock.init_app(app)
 
 
 @app.before_request
@@ -215,7 +218,7 @@ def conversation_error(error):
 
 @app.context_processor
 def experimental_voice_settings():
-    return {"voice_config": voice_config(), "voice_mock_mode": app.config.get("VOICE_MOCK_MODE", False)}
+    return {"voice_config": {**voice_config(), "STT_PROVIDER": os.getenv('STT_PROVIDER', 'whisper').strip().lower()}, "voice_mock_mode": app.config.get("VOICE_MOCK_MODE", False)}
 
 
 @app.route("/", methods=["GET", "POST"])
