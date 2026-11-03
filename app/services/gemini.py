@@ -66,13 +66,17 @@ Use exactly this structure:
     ]
 }}
 
-Generate exactly 3 questions covering a relevant mix of:
-- Technical knowledge
-- Resume/project knowledge
-- Problem solving
-- Behavioral/communication
-
-Questions must be relevant to BOTH the job description and the candidate's resume.
+Generate exactly 3 questions. Give the job description priority: ask 2 questions
+about the job's stated skills and requirements, and 1 high-level question about
+a project or experience on the resume. This approximates a 75% job description,
+25% resume mix for a three-question interview. Do not probe deeply into resume
+projects or unrelated technologies. The resume question should invite a simple
+overview, the candidate's contribution, or a lesson learned.
+For job-related questions, use the job description as the authority on scope
+and difficulty; a skill listed as basic means foundational concepts, not advanced
+internals, expert design, or difficult edge cases. Do not raise the difficulty
+because the resume mentions a complex project. When requirements are broad or
+experience is limited, favor entry-level questions and plain language.
 Do not invent experience that is not present in the resume.
 This is a voice-only interview, not a coding assessment. Never ask the candidate
 to write code, implement functions, type SQL, or use a code editor. Ask clear,
@@ -177,6 +181,8 @@ Rules:
    - The follow-up must address the candidate's weakness.
    - Do not repeat the original question.
    - The follow-up must remain related to the same skill.
+   - Match the job's stated level; for basic skills, ask a simple clarification
+     rather than advanced details or a deep dive into a resume project.
 
 4. If "follow_up_needed" is false:
    - Set "follow_up_question" to an empty string.

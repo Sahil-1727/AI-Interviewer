@@ -8,6 +8,8 @@
             this.started = now;
             this.lastActivity = now;
             this.activitySince = null;
+            this.lastSound = null;
+            this.activityDuration = 0;
             this.hasSpeech = false;
             this.prompted = false;
             this.checkpointed = false;
@@ -23,14 +25,24 @@
             this.keepThinking(now);
             this.hasSpeech = false;
             this.activitySince = null;
+            this.lastSound = null;
+            this.activityDuration = 0;
             this.checkpointed = false;
         }
 
         sample(level, now) {
             const c = this.config;
             if (level >= c.AUDIO_LEVEL_THRESHOLD) {
-                if (this.activitySince === null) this.activitySince = now;
-                if (now - this.activitySince >= c.MIN_ACTIVITY_SECONDS * 1000) {
+                const gap = (c.ACTIVITY_GAP_SECONDS ?? 0.2) * 1000;
+                if (this.lastSound === null || now - this.lastSound > gap) {
+                    this.activitySince = now;
+                    this.activityDuration = 0;
+                } else {
+                    // Count observed sound, not the gaps between syllables.
+                    this.activityDuration += Math.min(now - this.lastSound, c.AUDIO_SAMPLE_INTERVAL_MS);
+                }
+                this.lastSound = now;
+                if (this.activityDuration >= c.MIN_ACTIVITY_SECONDS * 1000) {
                     this.lastActivity = now;
                     this.prompted = false;
                     this.hasSpeech = true;
@@ -39,7 +51,11 @@
                 }
                 return "sound";
             }
-            this.activitySince = null;
+            if (this.lastSound !== null && now - this.lastSound > (c.ACTIVITY_GAP_SECONDS ?? 0.2) * 1000) {
+                this.activitySince = null;
+                this.lastSound = null;
+                this.activityDuration = 0;
+            }
             if (!this.hasSpeech) {
                 if (this.initialTimeout && now - this.started >= c.INITIAL_ANSWER_TIMEOUT_SECONDS * 1000) return "unanswered";
                 if (!this.prompted && now - this.started >= c.INITIAL_THINKING_PROMPT_SECONDS * 1000) {

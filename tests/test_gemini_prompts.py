@@ -17,6 +17,10 @@ class PromptTests(unittest.TestCase):
         self.assertIn("voice-only", prompt)
         self.assertIn("type SQL", prompt)
         self.assertIn("explain their approach verbally", prompt)
+        self.assertIn("2 questions", prompt)
+        self.assertIn("1 high-level question", prompt)
+        self.assertIn("basic means foundational concepts", prompt)
+        self.assertIn("Do not probe deeply", prompt)
         self.assertEqual(len(plan["questions"]), 3)
 
     def test_evaluation_prompt_includes_context_rubric_and_uncertainty(self):

@@ -71,6 +71,7 @@ exported environment variables. Restart Flask after changing them.
 | INITIAL_ANSWER_TIMEOUT_SECONDS | 10 | Mark an initially silent managed voice turn unanswered |
 | INITIAL_THINKING_PROMPT_SECONDS | 15 | Gentle visual prompt in standalone automatic recording |
 | END_OF_ANSWER_SILENCE_SECONDS | 5 | Finish automatically after this much silence following activity |
+| ACTIVITY_GAP_SECONDS | 0.2 | Allow short level drops between observed sound while detecting speech |
 | COMMAND_CHECKPOINT_SECONDS | 1 | Pause before sending a segment for early phrase recognition |
 | PLAYBACK_SETTLE_SECONDS | 0.6 | Mic remains closed after question audio |
 | SEGMENT_SECONDS | 25 | Bound each browser audio file, even for continuous speech |

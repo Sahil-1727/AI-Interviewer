@@ -3,6 +3,7 @@ import io
 import os
 import time
 from pathlib import Path
+from uuid import uuid4
 
 from cachelib.file import FileSystemCache
 from flask import jsonify, send_file
@@ -120,6 +121,8 @@ def start_interview():
     if not interview_plan:
         return redirect(url_for("home"))
 
+    session.setdefault("interview_instance_id", uuid4().hex)
+
     questions = interview_plan["questions"]
     current_question = session.get("current_question", 0)
 
@@ -177,6 +180,8 @@ def follow_up():
 
     if not follow_up_question:
         return redirect(url_for("start_interview"))
+
+    session.setdefault("interview_instance_id", uuid4().hex)
 
     return render_template(
         "interview.html",

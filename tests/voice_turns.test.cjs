@@ -8,7 +8,7 @@ const config = {
     INITIAL_THINKING_PROMPT_SECONDS: 15, INITIAL_ANSWER_TIMEOUT_SECONDS: 10, END_OF_ANSWER_SILENCE_SECONDS: 5,
     COMMAND_CHECKPOINT_SECONDS: 1,
     AUDIO_SAMPLE_INTERVAL_MS: 50, AUDIO_LEVEL_THRESHOLD: 0.025,
-    MIN_ACTIVITY_SECONDS: 0.25, PLAYBACK_SETTLE_SECONDS: 0.6,
+    MIN_ACTIVITY_SECONDS: 0.25, ACTIVITY_GAP_SECONDS: 0.2, PLAYBACK_SETTLE_SECONDS: 0.6,
     MAX_CAPTURE_SECONDS: 600, REQUEST_TIMEOUT_SECONDS: 90,
     SEGMENT_SECONDS: 25, MAX_PENDING_SEGMENTS: 8
 };
@@ -44,6 +44,16 @@ test('short impulses are not sustained activity', () => {
     assert.equal(d.sample(0.1, 500), 'sound');
     assert.equal(d.sample(0, 550), null);
     assert.equal(d.hasSpeech, false);
+});
+
+test('speech with brief level drops is detected without counting silent gaps as speech', () => {
+    const d = new TurnDetector(config, 0, true);
+    for (let t = 0; t <= 1000; t += 50) d.sample(t % 200 < 100 ? 0.1 : 0, t);
+    assert.equal(d.hasSpeech, true);
+    const activity = d.lastActivity;
+    assert.ok(activity >= 800);
+    assert.notEqual(d.sample(0, activity + 4999), 'finish');
+    assert.equal(d.sample(0, activity + 5000), 'finish');
 });
 
 test('five seconds of silence ends speech; resumed speech and noise are handled', () => {
@@ -199,6 +209,18 @@ test('five seconds after speech finishes one answer without duplicate uploads', 
     assert.equal(b.state(), 'review'); assert.ok(b.streams[0].track.stopped);
     assert.equal(b.requests.length, 1);
     assert.equal(b.elements.answer.value, 'An example answer.');
+});
+
+test('a long answer with brief level drops stays open until five seconds of silence', async () => {
+    const b = browser(); await b.start();
+    for (let i = 0; i < 100; i++) {
+        b.level(.1); await b.advance(100);
+        b.level(0); await b.advance(100);
+    }
+    assert.equal(b.streams[0].track.stopped, false);
+    await b.advance(5100);
+    assert.equal(b.state(), 'review');
+    assert.ok(b.streams[0].track.stopped);
 });
 
 test('speech resumed before five seconds cancels end-of-turn', async () => {

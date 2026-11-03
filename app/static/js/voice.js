@@ -182,6 +182,8 @@ document.addEventListener("DOMContentLoaded", () => {
                         if (t.lastValidatedEnd === null) {
                             t.detector.hasSpeech = false;
                             t.detector.activitySince = null;
+                            t.detector.lastSound = null;
+                            t.detector.activityDuration = 0;
                             state("thinking", "Take your time. Waiting for a clear answer.");
                         } else {
                             // A later non-speech burst should not extend the

@@ -144,7 +144,7 @@
                     <p class="tiny-label">Your saved transcript remains available. You can also use manual mode.</p>
                 </div>
             </section>
-            <form method="POST" id="answer-form" data-submit-form action="{% if question.type == 'follow_up' %}/submit-follow-up{% else %}/submit-answer{% endif %}" class="answer-panel">
+            <form method="POST" id="answer-form" data-submit-form data-interview-instance="{{ session.get('interview_instance_id', '') }}" action="{% if question.type == 'follow_up' %}/submit-follow-up{% else %}/submit-answer{% endif %}" class="answer-panel">
                 <div class="answer-heading">
                     <label for="answer" id="answer-label">Transcript preview</label>
                     <span class="tiny-label" id="answer-caption">A CONVERSATION AT YOUR PACE</span>

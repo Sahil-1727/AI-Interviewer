@@ -33,6 +33,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
     const config = JSON.parse($('voice-config').textContent);
     const machine = new window.ConversationMachine();
     const answer = $('answer');
+    const manualModeKey = 'interview-manual:' + answer.form.dataset.interviewInstance;
     let snapshot = null;
     let active = false;
     let paused = true;
@@ -80,7 +81,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
         $('end-interview').disabled ||= !snapshot;
         $('manual-mode').disabled = terminating;
         $('microphone-activity').hidden = !['THINKING', 'LISTENING', 'POSSIBLE_END_OF_TURN'].includes(next);
-        answer.readOnly = voice.isBusy() || (active && (next === 'EVALUATING' || ['evaluating', 'scoring'].includes(snapshot?.status)));
+        answer.readOnly = (next === 'IDLE' && document.body.dataset.interviewMode !== 'manual') || voice.isBusy() || (active && (next === 'EVALUATING' || ['evaluating', 'scoring'].includes(snapshot?.status)));
     }
 
     function saveDraft() {
@@ -270,6 +271,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
         try {
             await voice.unlock();
             const state = await api('/start', {});
+            try { sessionStorage.removeItem(manualModeKey); } catch (_) {}
             if (!snapshot) { snapshot = state; restoreDraft(state); }
             if (state.paused) await api('/control', {action: 'resume'});
             await receive({...state, paused: false});
@@ -353,6 +355,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
             active = false; paused = true; pending = null; ++operation; clearTimeout(pollTimer);
             voice.setManaged(false);
             document.body.dataset.interviewMode = 'manual';
+            try { sessionStorage.setItem(manualModeKey, 'true'); } catch (_) {}
             setState('IDLE', 'Manual mode. Type or record an answer, then review and submit it.');
             $('answer-label').textContent = 'Your answer';
         } catch (error) { if (wasActive) recover(error); }
@@ -436,6 +439,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
 
     async function bootstrap() {
         document.body.dataset.interviewMode = 'idle';
+        let restoredManual = false;
         try {
             const state = await api();
             if (state.status === 'manual' || state.status === 'ended') return;
@@ -457,11 +461,19 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
                 }
             }
         } catch (error) {
-            if (error.status !== 404 && error.status !== 410) $('voice-status').textContent = 'Connection unavailable. Start again when connected, or choose manual mode.';
+            if (error.status === 404) {
+                try { restoredManual = sessionStorage.getItem(manualModeKey) === 'true'; } catch (_) {}
+                if (restoredManual) {
+                    document.body.dataset.interviewMode = 'manual';
+                    voice.setManaged(false);
+                    setState('IDLE', 'Manual mode. Type or record an answer, then review and submit it.');
+                    $('answer-label').textContent = 'Your answer';
+                }
+            } else if (error.status !== 410) $('voice-status').textContent = 'Connection unavailable. Start again when connected, or choose manual mode.';
         } finally {
             bootstrapping = false;
             $('start-interview').disabled = terminating || starting || (active && !paused);
-            document.dispatchEvent(new CustomEvent('interview:ready', {detail: {existing: active}}));
+            document.dispatchEvent(new CustomEvent('interview:ready', {detail: {existing: active || restoredManual}}));
         }
     }
     setState('IDLE', 'Start once, then answer naturally. Your interviewer will guide the conversation.');
