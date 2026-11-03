@@ -1,5 +1,6 @@
 
 import edge_tts
+import os
 
 
 VOICE = "en-IN-NeerjaNeural"
@@ -8,6 +9,13 @@ VOICE = "en-IN-NeerjaNeural"
 async def synthesize_speech(text):
     if not text or not text.strip():
         raise ValueError("Text is required.")
+
+    provider = os.getenv('TTS_PROVIDER', 'edge').strip().lower()
+    if provider == 'deepgram':
+        from app.services.deepgram_tts import synthesize_deepgram
+        return await synthesize_deepgram(text.strip())
+    if provider != 'edge':
+        raise ValueError('Unsupported TTS provider.')
 
     communicate = edge_tts.Communicate(
         text=text.strip(),

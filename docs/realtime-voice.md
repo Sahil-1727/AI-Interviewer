@@ -66,6 +66,13 @@ happen on the server. This is HTTP endpointing, not streaming token generation.
 Settings are validated in `app/voice_config.py`, overridable through `.env` or
 exported environment variables. Restart Flask after changing them.
 
+The experimental `feature/free-deployment` branch can select Aura-2 speech
+output with `TTS_PROVIDER=deepgram`, `DEEPGRAM_API_KEY`, and optionally
+`DEEPGRAM_TTS_MODEL` (default `aura-2-thalia-en`). The default remains
+`TTS_PROVIDER=edge`. This is TTS only: Deepgram streaming STT is not yet wired
+to the browser, and the existing faster-whisper path remains in use. Provider
+tests use mocked HTTP and do not demonstrate live Deepgram audio or latency.
+
 | Setting | Default | Meaning |
 | --- | ---: | --- |
 | INITIAL_ANSWER_TIMEOUT_SECONDS | 10 | Mark an initially silent managed voice turn unanswered |
