@@ -60,7 +60,7 @@ class DeepgramTTSTests(unittest.TestCase):
                 self.arguments = kwargs
             async def stream(self):
                 yield {'type': 'audio', 'data': b'edge-audio'}
-        with patch.dict(os.environ, {'TTS_PROVIDER': 'edge'}), patch('app.services.tts.edge_tts.Communicate', FakeEdge):
+        with patch.dict(os.environ, {'TTS_PROVIDER': 'edge'}), patch('edge_tts.Communicate', FakeEdge):
             self.assertEqual(asyncio.run(tts.synthesize_speech('Hello')), b'edge-audio')
 
 

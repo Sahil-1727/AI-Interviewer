@@ -4,8 +4,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-bind = os.getenv('GUNICORN_BIND', '0.0.0.0:8000')
-workers = int(os.getenv('GUNICORN_WORKERS', '2'))
+bind = os.getenv('GUNICORN_BIND', '0.0.0.0:' + os.getenv('PORT', '8000'))
+workers = int(os.getenv('GUNICORN_WORKERS', '1'))
 threads = int(os.getenv('GUNICORN_THREADS', '4'))
 worker_class = 'gthread'
 if os.getenv('STT_PROVIDER', 'whisper').strip().lower() == 'deepgram' and threads <= int(os.getenv('STREAM_MAX_CONNECTIONS_PER_WORKER', '2')):

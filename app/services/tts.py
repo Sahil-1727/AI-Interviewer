@@ -1,5 +1,4 @@
 
-import edge_tts
 import os
 
 
@@ -17,6 +16,7 @@ async def synthesize_speech(text):
     if provider != 'edge':
         raise ValueError('Unsupported TTS provider.')
 
+    import edge_tts
     communicate = edge_tts.Communicate(
         text=text.strip(),
         voice=VOICE,

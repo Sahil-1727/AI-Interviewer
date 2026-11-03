@@ -1,0 +1,15 @@
+# Render / Deepgram runtime. Local Whisper and Edge dependencies are excluded.
+Flask>=3.0,<4
+Flask-Session>=0.8,<1.0
+cachelib>=0.13,<1.0
+google-genai>=1,<3
+python-dotenv>=1,<2
+pypdf>=5,<7
+SQLAlchemy>=2.0,<3
+Flask-SQLAlchemy>=3.1,<4
+Flask-Migrate>=4,<5
+psycopg[binary]>=3.2,<4
+gunicorn>=22,<24
+httpx>=0.27,<1
+flask-sock>=0.7,<1
+websocket-client>=1.8,<2

@@ -3,11 +3,8 @@ import os
 import tempfile
 import time
 
-import av
-import numpy as np
 from threading import Lock
 
-from faster_whisper import WhisperModel
 from app.voice_config import voice_config
 from app.services.voice_commands import command_for, without_completion
 
@@ -22,6 +19,7 @@ def get_whisper_model():
     if _model is None:
         with _model_lock:
             if _model is None:
+                from faster_whisper import WhisperModel
                 _model = WhisperModel(
                     os.getenv("WHISPER_MODEL", "base"),
                     device="cpu",
@@ -42,6 +40,8 @@ def completion_result(segments, settings):
 
 def decode_bounded(path, limit):
     """Decode incrementally so compressed uploads cannot expand without bound."""
+    import av
+    import numpy as np
     samples, count = [], 0
     with av.open(path) as container:
         if not container.streams.audio:
@@ -80,6 +80,7 @@ def transcribe_audio(audio_file, detect_completion=False):
     temp_path = None
 
     try:
+        import av
         with tempfile.NamedTemporaryFile(
             delete=False,
             suffix=extension
