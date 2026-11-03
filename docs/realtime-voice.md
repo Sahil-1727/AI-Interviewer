@@ -70,8 +70,9 @@ The experimental `feature/free-deployment` branch can select Aura-2 speech
 output with `TTS_PROVIDER=deepgram`, `DEEPGRAM_API_KEY`, and optionally
 `DEEPGRAM_TTS_MODEL` (default `aura-2-thalia-en`). The default remains
 `TTS_PROVIDER=edge`. This is TTS only: Deepgram streaming STT is not yet wired
-to the browser, and the existing faster-whisper path remains in use. Provider
-tests use mocked HTTP and do not demonstrate live Deepgram audio or latency.
+to the browser, and `STT_PROVIDER=whisper` remains the only supported STT
+setting. Selecting another STT provider fails rather than silently using Whisper.
+Provider tests use mocked HTTP and do not demonstrate live Deepgram audio or latency.
 
 | Setting | Default | Meaning |
 | --- | ---: | --- |

@@ -65,6 +65,8 @@ def decode_bounded(path, limit):
 
 
 def transcribe_audio(audio_file, detect_completion=False):
+    if os.getenv('STT_PROVIDER', 'whisper').strip().lower() != 'whisper':
+        raise RuntimeError('The selected STT provider is not available for recorded audio.')
     if not audio_file or not audio_file.filename:
         raise ValueError("Audio file is required.")
 
