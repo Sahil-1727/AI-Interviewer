@@ -2,12 +2,14 @@ import asyncio
 import io
 import os
 import time
+from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
 
 from cachelib.file import FileSystemCache
 from flask import jsonify, send_file
 from flask_session import Session
+from sqlalchemy.exc import SQLAlchemyError
 from app.services.stt import transcribe_audio
 from app.services.tts import synthesize_speech
 
@@ -29,7 +31,19 @@ app = Flask(
     template_folder="app/templates",
     static_folder="app/static"
 )
-app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = int(os.getenv('MAX_REQUEST_BYTES', str(12 * 1024 * 1024)))
+if app.config['MAX_CONTENT_LENGTH'] <= 0:
+    raise RuntimeError('MAX_REQUEST_BYTES must be positive.')
+
+if os.getenv('APP_ENV') == 'production':
+    if not os.getenv('DATABASE_URL') or os.getenv('SESSION_COOKIE_SECURE') != '1':
+        raise RuntimeError('Production requires DATABASE_URL and SESSION_COOKIE_SECURE=1.')
+    if len(os.getenv('SECRET_KEY', '')) < 32:
+        raise RuntimeError('Production requires a SECRET_KEY of at least 32 characters.')
+    if os.getenv('FLASK_DEBUG') == '1':
+        raise RuntimeError('Production cannot run in debug mode.')
+    if os.getenv('CSRF_ENABLED', '1') == '0' or os.getenv('RATE_LIMIT_ENABLED', '1') == '0':
+        raise RuntimeError('Production requires CSRF protection and rate limiting.')
 
 if os.getenv("DATABASE_URL") and not os.getenv("SECRET_KEY"):
     raise RuntimeError("SECRET_KEY must be set when using PostgreSQL-backed sessions.")
@@ -40,6 +54,15 @@ app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key")
 def upload_too_large(error):
     return jsonify(error="Recording or upload exceeds the 12 MB limit. Use shorter recording segments."), 413
 
+
+@app.errorhandler(SQLAlchemyError)
+def database_unavailable(error):
+    app.logger.warning('Database operation failed.')
+    response = jsonify(error='Service temporarily unavailable.')
+    response.status_code = 503
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
 voice_journal = None
 if os.getenv("DATABASE_URL"):
     from app.database import db, init_database
@@ -49,7 +72,12 @@ if os.getenv("DATABASE_URL"):
                       SESSION_SQLALCHEMY_TABLE="web_sessions", SESSION_PERMANENT=False,
                       SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
                       SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "0") == "1")
-    Session(app)
+    from app.services.shared_session import SharedSessionInterface
+    retention_seconds = int(os.getenv('SESSION_RETENTION_SECONDS', '86400'))
+    if retention_seconds <= 0:
+        raise RuntimeError('SESSION_RETENTION_SECONDS must be positive.')
+    app.permanent_session_lifetime = timedelta(seconds=retention_seconds)
+    app.session_interface = SharedSessionInterface(app, client=db, table='web_sessions', permanent=False)
     with app.app_context():
         voice_journal = PostgresVoiceJournal(db.engine)
 else:
@@ -64,6 +92,42 @@ app.extensions["conversation"] = ConversationService(
     voice_config(), journal=voice_journal,
 )
 app.register_blueprint(conversation_bp)
+
+
+@app.before_request
+def check_session_storage():
+    if getattr(session, '_storage_unavailable', False):
+        return jsonify(error='Service temporarily unavailable.'), 503
+
+
+from app.security import init_security
+init_security(app)
+
+
+@app.get('/health/ready')
+def readiness():
+    if not os.getenv('DATABASE_URL'):
+        return jsonify(status='unavailable'), 503
+    try:
+        from sqlalchemy import text
+        with db.engine.connect() as connection:
+            connection.execute(text('SELECT 1'))
+        return jsonify(status='ready'), 200
+    except Exception:
+        return jsonify(status='unavailable'), 503
+
+
+@app.cli.command('cleanup-expired-sessions')
+def cleanup_expired_sessions():
+    """Remove expired browser sessions and old rate buckets; never interviews."""
+    import click
+    from sqlalchemy import text
+    if not os.getenv('DATABASE_URL'):
+        raise click.ClickException('DATABASE_URL is required.')
+    with db.engine.begin() as connection:
+        removed = connection.execute(text("DELETE FROM web_sessions WHERE expiry < (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')")).rowcount
+        connection.execute(text('DELETE FROM request_limits WHERE bucket < :cutoff'), {'cutoff': int(time.time()) // 60 - 1440})
+    click.echo(f'Removed {removed} expired browser sessions.')
 
 
 @app.get('/api/conversation/transcript')
@@ -162,6 +226,10 @@ def home():
         candidate_name = request.form.get("candidate_name")
         job_description = request.form.get("job_description")
         resume_file = request.files.get("resume")
+        if not candidate_name or not candidate_name.strip() or len(candidate_name) > 255:
+            return 'Provide a candidate name of at most 255 characters.', 400
+        if not job_description or not job_description.strip() or len(job_description) > 50000:
+            return 'Provide a job description of at most 50,000 characters.', 400
         try:
 
             resume = extract_resume_text(resume_file)
@@ -169,6 +237,9 @@ def home():
         except ValueError as error:
 
             return f"Resume Error: {error}", 400
+
+        if not isinstance(resume, str) or not resume.strip() or len(resume) > 100000:
+            return 'Provide a readable resume with at most 100,000 characters of text.', 400
 
         interview_plan = generate_interview_plan(
             candidate_name,
@@ -369,6 +440,8 @@ def transcribe():
 def synthesize():
 
     data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "A JSON object is required."}), 400
     text = data.get("text", "")
 
     if not isinstance(text, str) or not text.strip():

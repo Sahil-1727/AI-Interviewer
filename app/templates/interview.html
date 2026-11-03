@@ -145,6 +145,7 @@
                 </div>
             </section>
             <form method="POST" id="answer-form" data-submit-form data-interview-instance="{{ session.get('interview_instance_id', '') }}" action="{% if question.type == 'follow_up' %}/submit-follow-up{% else %}/submit-answer{% endif %}" class="answer-panel">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 {% if manual_turn_id %}<input type="hidden" name="turn_id" value="{{ manual_turn_id }}">{% endif %}
                 <div class="answer-heading">
                     <label for="answer" id="answer-label">Transcript preview</label>

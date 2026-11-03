@@ -270,7 +270,7 @@ class ConversationService:
                 state.pop("retry_stage", None)
             logger.info("voice_timing stage=scorecard interview=%s ms=%.2f mock=%s", identity, elapsed, work["mock"])
         except Exception:
-            logger.exception("Conversation processing failed: interview=%s request=%s", identity, request_id)
+            logger.error("Conversation processing failed: interview=%s request=%s", identity, request_id)
             self._error(identity, request_id, "Processing failed or timed out. Your answer is saved. Retry processing or switch to manual mode.")
         finally:
             self.slots.release()

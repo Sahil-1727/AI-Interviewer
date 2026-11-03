@@ -31,6 +31,10 @@ def init_database(app):
 
 def migration_app():
     from app.models import interview  # noqa: F401 - register migration metadata
+    from flask_session.sqlalchemy.sqlalchemy import create_session_model
+
+    if 'web_sessions' not in db.metadata.tables:
+        create_session_model(db, 'web_sessions')
 
     app = Flask(__name__)
     init_database(app)

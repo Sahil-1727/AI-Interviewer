@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import db
@@ -127,3 +127,11 @@ class VoiceSnapshot(db.Model):
     __tablename__ = "voice_snapshots"
     interview_id: Mapped[str] = mapped_column(ForeignKey("interviews.id", ondelete="CASCADE"), primary_key=True)
     state: Mapped[dict] = mapped_column(JSON, nullable=False)
+
+
+class RequestLimit(db.Model):
+    __tablename__ = "request_limits"
+    client_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    category: Mapped[str] = mapped_column(String(32), primary_key=True)
+    bucket: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
+    count: Mapped[int] = mapped_column(Integer, nullable=False)

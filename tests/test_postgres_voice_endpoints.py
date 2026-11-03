@@ -10,8 +10,13 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 from uuid import uuid4
+from datetime import datetime, timedelta
+from flask import Response
+from werkzeug.test import EnvironBuilder
+from werkzeug.wrappers import Request
 
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 
 import run
 from app.models.interview import Answer, ConversationMessage, Evaluation, Interview, Question, Scorecard, VoiceSnapshot
@@ -234,3 +239,83 @@ class PostgreSQLVoiceEndpoints(unittest.TestCase):
                 responses = [future.result(timeout=5) for future in futures]
             self.assertTrue(all(response.status_code == 302 for response in responses))
             self.assertEqual(calls, ['Java'])
+
+    def test_concurrent_session_updates_merge_and_expiry_does_not_resurrect(self):
+        with self.client.session_transaction() as session:
+            session['shared_value'] = 'initial'
+        cookie = self.client.get_cookie('session').value
+        request = Request(EnvironBuilder(headers={'Cookie': 'session=' + cookie}).get_environ())
+        interface = run.app.session_interface
+        with run.app.app_context():
+            first = interface.open_session(run.app, request)
+            second = interface.open_session(run.app, request)
+            conflicting = interface.open_session(run.app, request)
+            first['first'] = 'one'
+            first['shared_value'] = 'newer'
+            second['second'] = 'two'
+            conflicting['shared_value'] = 'stale'
+            interface.save_session(run.app, first, Response())
+            interface.save_session(run.app, second, Response())
+            conflict_response = Response()
+            interface.save_session(run.app, conflicting, conflict_response)
+            self.assertEqual(conflict_response.status_code, 409)
+            merged = interface.open_session(run.app, request)
+            self.assertEqual((merged['first'], merged['second'], merged['shared_value']), ('one', 'two', 'newer'))
+            old_request = interface.open_session(run.app, request)
+            interface._delete_session(interface._get_store_id(old_request.sid))
+            old_request['late'] = 'ignored'
+            interface.save_session(run.app, old_request, Response())
+            self.assertNotEqual(interface.open_session(run.app, request).sid, old_request.sid)
+
+    def test_expired_session_loses_access_without_deleting_interview(self):
+        state = self.client.post('/api/conversation/start', json={}).json
+        identity = state['interview_id']
+        cookie = self.client.get_cookie('session').value
+        interface = run.app.session_interface
+        with run.app.app_context():
+            record = interface.sql_session_model.query.filter_by(session_id=interface._get_store_id(cookie)).first()
+            record.expiry = datetime.utcnow() - timedelta(seconds=1)
+            interface.client.session.commit()
+        self.assertEqual(self.client.get('/api/conversation').status_code, 404)
+        with run.app.extensions['conversation'].journal.sessions.begin() as db:
+            self.assertIsNotNone(db.get(Interview, identity))
+
+    def test_cleanup_removes_expired_session_but_preserves_interview(self):
+        state = self.client.post('/api/conversation/start', json={}).json
+        identity = state['interview_id']
+        cookie = self.client.get_cookie('session').value
+        interface = run.app.session_interface
+        with run.app.app_context():
+            record = interface.sql_session_model.query.filter_by(session_id=interface._get_store_id(cookie)).first()
+            record.expiry = datetime.utcnow() - timedelta(seconds=1)
+            interface.client.session.commit()
+        result = run.app.test_cli_runner().invoke(args=['cleanup-expired-sessions'])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(self.client.get('/api/conversation').status_code, 404)
+        with run.app.extensions['conversation'].journal.sessions.begin() as db:
+            self.assertIsNotNone(db.get(Interview, identity))
+
+    def test_shared_rate_limit_and_readiness(self):
+        with patch.dict(run.app.config, CSRF_ENABLED=False, RATE_LIMIT_ENABLED=True), patch.dict(os.environ, RATE_LIMIT_INTERVIEW_PER_MINUTE='2'):
+            client = run.app.test_client()
+            ip = f'198.18.{uuid4().int % 255}.{uuid4().int % 255}'
+            responses = [client.post('/api/conversation/start', json={}, environ_base={'REMOTE_ADDR': ip}).status_code for _ in range(3)]
+            self.assertEqual(responses, [400, 400, 429])
+            self.assertEqual(client.get('/health/ready').json, {'status': 'ready'})
+            with run.app.app_context():
+                engine = run.db.engine
+            with patch.object(engine, 'connect', side_effect=RuntimeError('secret must not leak')):
+                result = client.get('/health/ready')
+                self.assertEqual(result.status_code, 503)
+                self.assertNotIn('secret', result.get_data(as_text=True))
+
+    def test_database_failure_during_session_read_returns_safe_error(self):
+        with self.client.session_transaction() as session:
+            session['existing'] = True
+        with run.app.app_context():
+            engine = run.db.engine
+        error = OperationalError('database unavailable', None, Exception('private detail'))
+        with patch.object(engine, 'connect', side_effect=error):
+            result = self.client.get('/api/conversation')
+        self.assertEqual(result.status_code, 503)
+        self.assertNotIn('private detail', result.get_data(as_text=True))
