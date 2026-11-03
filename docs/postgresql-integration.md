@@ -1,10 +1,10 @@
 # PostgreSQL integration (in progress)
 
-The schema and initial migration are a foundation only. The interview application
-still uses filesystem sessions and its file-based conversation journal. Do not
-deploy this branch as a PostgreSQL-backed or multi-worker-safe application yet.
-No existing interview data has been migrated. Existing data must be backed up and
-imported with an explicit, verified process before changing storage.
+When `DATABASE_URL` is configured, new voice interviews use PostgreSQL for the
+conversation journal and normalized interview records. Manual interviews and
+Flask sessions continue to use filesystem storage. Do not deploy this branch
+as a fully PostgreSQL-backed or horizontally scalable application. Existing
+file journals are not automatically imported; back them up before migration.
 
 For an isolated local development database, create an empty PostgreSQL database
 using your existing PostgreSQL administration tools, then set `DATABASE_URL` to
@@ -18,18 +18,20 @@ With the virtual environment active, install `requirements.txt`, then run:
 flask --app app.database:migration_app db upgrade
 ```
 
-The command applies the schema migration; it does not import interviews or switch
-the running application to database storage. Back up an existing database before
+The command applies schema migrations; it does not import interviews. Restart the
+application with `DATABASE_URL` set to enable PostgreSQL for new voice sessions.
+Without it the existing file journal remains active. Back up an existing database before
 running migrations. Do not run a downgrade against valuable data: the generated
 downgrade drops tables. Do not use production credentials for tests.
 
-Outstanding work includes replacing the session and conversation stores,
-transactional and idempotent multi-worker processing, secure owner verification,
-transcript export, data import, health checks, deployment integration, and
-end-to-end PostgreSQL concurrency and recovery tests.
+Outstanding work includes replacing the manual/session stores, transcript export,
+historical data import, health checks, deployment integration, and additional
+production recovery and multi-host tests. A voice session's access token remains
+in the filesystem-backed Flask session; loss of that session prevents resuming it.
+Workers must share that session storage and the same secret key. An external
+Gemini call can have an ambiguous outcome after a crash: retry is explicit and
+can cause a second provider call, though committed state is protected.
 
-The access-capability and ordered-message repository provides tested database
-primitives, including row-locked ordering and hashed random tokens. It is not
-connected to the web application and does not yet authorize HTTP requests or
-populate transcript events automatically. Existing interviews do not receive
-capabilities merely by applying the migration.
+Voice endpoints authorize the interview against the hashed access capability.
+They write messages with the journal transition, under the interview row lock.
+Existing file interviews do not receive capabilities merely by applying migrations.

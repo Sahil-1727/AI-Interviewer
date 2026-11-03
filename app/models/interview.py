@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import db
@@ -71,7 +71,7 @@ class Evaluation(db.Model):
     __tablename__ = "evaluations"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=identifier)
     answer_id: Mapped[str] = mapped_column(ForeignKey("answers.id", ondelete="CASCADE"), nullable=False, unique=True)
-    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
     strengths: Mapped[list] = mapped_column(JSON, nullable=False)
     weaknesses: Mapped[list] = mapped_column(JSON, nullable=False)
     feedback: Mapped[str] = mapped_column(Text, nullable=False)
@@ -121,3 +121,9 @@ class InterviewAccess(db.Model):
     interview_id: Mapped[str] = mapped_column(ForeignKey("interviews.id", ondelete="CASCADE"), primary_key=True)
     token_digest: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class VoiceSnapshot(db.Model):
+    __tablename__ = "voice_snapshots"
+    interview_id: Mapped[str] = mapped_column(ForeignKey("interviews.id", ondelete="CASCADE"), primary_key=True)
+    state: Mapped[dict] = mapped_column(JSON, nullable=False)

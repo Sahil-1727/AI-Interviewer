@@ -89,8 +89,8 @@ class Journal:
 
 
 class ConversationService:
-    def __init__(self, directory, evaluator, scorecard, settings):
-        self.journal = Journal(directory)
+    def __init__(self, directory, evaluator, scorecard, settings, journal=None):
+        self.journal = journal or Journal(directory)
         self.evaluator = evaluator
         self.scorecard = scorecard
         self.settings = settings
@@ -102,6 +102,12 @@ class ConversationService:
             raise ConversationError("Set up an interview first.", 400)
         identity = session.get("voice_interview_id")
         if identity:
+            self.authorize(identity, session)
+            return self.get(identity)
+        if hasattr(self.journal, "initialize"):
+            identity, token = self.journal.initialize(session, mock)
+            session["voice_interview_id"] = identity
+            session["voice_interview_token"] = token
             return self.get(identity)
         self.journal.purge(self.settings["CONVERSATION_RETENTION_SECONDS"])
         identity = uuid4().hex
@@ -113,6 +119,10 @@ class ConversationService:
                 state["status"] = "completed" if state.get("final_scorecard") else "error"
         session["voice_interview_id"] = identity
         return self.get(identity)
+
+    def authorize(self, identity, session):
+        if hasattr(self.journal, "authorize"):
+            self.journal.authorize(identity, session.get("voice_interview_token"))
 
     def _recover_stale(self, state):
         active = state.get("active_request")

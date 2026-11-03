@@ -48,11 +48,18 @@ app.config.update(
     SESSION_PERMANENT=False,
 )
 Session(app)
+voice_journal = None
+if os.getenv("DATABASE_URL"):
+    from app.database import db, init_database
+    from app.services.postgres_voice import PostgresVoiceJournal
+    init_database(app)
+    with app.app_context():
+        voice_journal = PostgresVoiceJournal(db.engine)
 app.extensions["conversation"] = ConversationService(
     os.getenv("CONVERSATION_STATE_DIR", str(Path(app.instance_path) / "conversations")),
     lambda question, answer: evaluate_answer(question, answer),
     lambda candidate, history: generate_final_scorecard(candidate, history),
-    voice_config(),
+    voice_config(), journal=voice_journal,
 )
 app.register_blueprint(conversation_bp)
 
@@ -61,10 +68,12 @@ def sync_voice_session(manual=False):
     identity = session.get("voice_interview_id")
     if identity:
         service = app.extensions["conversation"]
+        service.authorize(identity, session)
         state = service.control(identity, "manual") if manual else service.get(identity)
         copy_to_session(state, session)
         if manual:
             session.pop("voice_interview_id", None)
+            session.pop("voice_interview_token", None)
         return state
 
 

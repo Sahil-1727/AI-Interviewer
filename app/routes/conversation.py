@@ -14,6 +14,7 @@ def identity():
     value = session.get("voice_interview_id")
     if not value:
         raise ConversationError("No active conversation.", 404)
+    service().authorize(value, session)
     return value
 
 
@@ -63,4 +64,5 @@ def control():
     if payload.get("action") == "manual":
         copy_to_session(state, session)
         session.pop("voice_interview_id", None)
+        session.pop("voice_interview_token", None)
     return reply(state)

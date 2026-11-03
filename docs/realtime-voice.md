@@ -295,10 +295,11 @@ benchmark. Server STT time includes decode, model access/lock wait and inference
 - Use a threaded production WSGI server, not Flask's dev server. Model memory and
   the thread-pool limit are per worker. Bound reverse-proxy upload/request times
   consistently with the configured 12 MB upload, 90s audio segment and timeouts.
-- Journal snapshots expire opportunistically on new interview starts after the
+- File journal snapshots expire opportunistically on new interview starts after the
   configured 24-hour retention. Stable lock files remain; arrange offline cleanup
   while the service is stopped. Sessions retain their existing cache lifecycle.
-- Do not put this journal on an unverified network filesystem or multiple hosts.
-  Its POSIX file locking targets macOS/Linux; Windows needs a lock adapter.
-  For horizontal scale, replace it with PostgreSQL transactional turn/job claims
-  and a durable worker queue. There is no database migration in this branch.
+- Without `DATABASE_URL`, do not put the file journal on an unverified network
+  filesystem or multiple hosts; its POSIX locks target macOS/Linux. With
+  `DATABASE_URL`, new voice journals use PostgreSQL row locks. Flask sessions
+  and manual interviews remain file-backed, so multi-host operation is not yet
+  supported. See `docs/postgresql-integration.md` for setup and limitations.
