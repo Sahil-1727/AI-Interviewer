@@ -66,10 +66,10 @@ Use exactly this structure:
     ]
 }}
 
-Generate exactly 3 questions. Give the job description priority: ask 2 questions
-about the job's stated skills and requirements, and 1 high-level question about
-a project or experience on the resume. This approximates a 75% job description,
-25% resume mix for a three-question interview. Do not probe deeply into resume
+Generate exactly 10 questions. Give the job description priority: ask 8 questions
+about the job's stated skills and requirements, and 2 high-level questions about
+projects or experience on the resume. This approximates a 75% job description,
+25% resume mix for a ten-question interview. Do not probe deeply into resume
 projects or unrelated technologies. The resume question should invite a simple
 overview, the candidate's contribution, or a lesson learned.
 For job-related questions, use the job description as the authority on scope
@@ -101,8 +101,8 @@ internship expectations in the job description.
         response_text = response_text.strip()
 
     interview_plan = json.loads(response_text)
-    # Keep test interviews short even if the model returns extra questions.
-    interview_plan["questions"] = interview_plan["questions"][:3]
+    # Limit the plan even if the model returns extra questions.
+    interview_plan["questions"] = interview_plan["questions"][:10]
 
     for question in interview_plan["questions"]:
         question["skill"] = (

@@ -8,8 +8,8 @@ from app.services.gemini import evaluate_answer, generate_interview_plan
 
 
 class PromptTests(unittest.TestCase):
-    def test_voice_question_prompt_and_temporary_three_question_cap(self):
-        response = {"questions": [{"question": str(i), "type": "technical"} for i in range(4)]}
+    def test_voice_question_prompt_and_ten_question_cap(self):
+        response = {"questions": [{"question": str(i), "type": "technical"} for i in range(11)]}
         generate = Mock(return_value=SimpleNamespace(text=json.dumps(response)))
         with patch("app.services.gemini.get_client", return_value=SimpleNamespace(models=SimpleNamespace(generate_content=generate))):
             plan = generate_interview_plan("Candidate", "Intern role", "Student project")
@@ -17,11 +17,11 @@ class PromptTests(unittest.TestCase):
         self.assertIn("voice-only", prompt)
         self.assertIn("type SQL", prompt)
         self.assertIn("explain their approach verbally", prompt)
-        self.assertIn("2 questions", prompt)
-        self.assertIn("1 high-level question", prompt)
+        self.assertIn("8 questions", prompt)
+        self.assertIn("2 high-level questions", prompt)
         self.assertIn("basic means foundational concepts", prompt)
         self.assertIn("Do not probe deeply", prompt)
-        self.assertEqual(len(plan["questions"]), 3)
+        self.assertEqual(len(plan["questions"]), 10)
 
     def test_evaluation_prompt_includes_context_rubric_and_uncertainty(self):
         generate = Mock(return_value=SimpleNamespace(text='{}'))
