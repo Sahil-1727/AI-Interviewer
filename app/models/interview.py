@@ -113,3 +113,11 @@ class InterviewRequest(db.Model):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     stage: Mapped[str] = mapped_column(String(32), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class InterviewAccess(db.Model):
+    """A hashed bearer capability; IDs alone never authorize an interview."""
+    __tablename__ = "interview_access"
+    interview_id: Mapped[str] = mapped_column(ForeignKey("interviews.id", ondelete="CASCADE"), primary_key=True)
+    token_digest: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)

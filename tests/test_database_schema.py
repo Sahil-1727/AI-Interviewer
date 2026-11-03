@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.database import db, migration_app
 from app.models.interview import Answer, ConversationMessage, Evaluation, Interview, Question, Scorecard, User
+from app.services.interview_repository import InterviewNotFound, append_message, create_interview, export_transcript
 
 
 class DatabaseSchemaTests(unittest.TestCase):
@@ -55,6 +56,19 @@ class DatabaseSchemaTests(unittest.TestCase):
         with self.assertRaises(IntegrityError):
             db.session.commit()
         db.session.rollback()
+
+    def test_capabilities_isolate_transcripts(self):
+        plan = {"questions": [{"type": "technical", "question": "What is Java?", "skill": "Java"}]}
+        first, first_token = create_interview(db.session, "First", "Java basics", "", plan)
+        second, second_token = create_interview(db.session, "Second", "Java basics", "", plan)
+        append_message(db.session, first, first_token, "question", "What is Java?")
+        append_message(db.session, first, first_token, "answer", "A programming language.")
+        db.session.commit()
+        self.assertEqual([x["kind"] for x in export_transcript(db.session, first, first_token)], ["question", "answer"])
+        self.assertEqual(export_transcript(db.session, second, second_token), [])
+        for identity, token in ((first, second_token), (second, first_token), (first, first), (first, "")):
+            with self.assertRaises(InterviewNotFound):
+                export_transcript(db.session, identity, token)
 
 
 if __name__ == "__main__":

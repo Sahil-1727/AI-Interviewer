@@ -27,3 +27,9 @@ Outstanding work includes replacing the session and conversation stores,
 transactional and idempotent multi-worker processing, secure owner verification,
 transcript export, data import, health checks, deployment integration, and
 end-to-end PostgreSQL concurrency and recovery tests.
+
+The access-capability and ordered-message repository provides tested database
+primitives, including row-locked ordering and hashed random tokens. It is not
+connected to the web application and does not yet authorize HTTP requests or
+populate transcript events automatically. Existing interviews do not receive
+capabilities merely by applying the migration.
