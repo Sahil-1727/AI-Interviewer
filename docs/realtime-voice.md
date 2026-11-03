@@ -300,6 +300,6 @@ benchmark. Server STT time includes decode, model access/lock wait and inference
   while the service is stopped. Sessions retain their existing cache lifecycle.
 - Without `DATABASE_URL`, do not put the file journal on an unverified network
   filesystem or multiple hosts; its POSIX locks target macOS/Linux. With
-  `DATABASE_URL`, new voice journals use PostgreSQL row locks. Flask sessions
-  and manual interviews remain file-backed, so multi-host operation is not yet
-  supported. See `docs/postgresql-integration.md` for setup and limitations.
+  `DATABASE_URL`, new interview journals and Flask sessions use PostgreSQL.
+  Multi-host operation still requires additional concurrency and recovery
+  validation. See `docs/postgresql-integration.md` for setup and limitations.

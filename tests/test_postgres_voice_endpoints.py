@@ -1,5 +1,9 @@
 """Actual voice endpoints against a dedicated migrated PostgreSQL database."""
 import os
+import io
+import re
+import subprocess
+import sys
 import threading
 import time
 import unittest
@@ -56,6 +60,10 @@ class PostgreSQLVoiceEndpoints(unittest.TestCase):
             self.assertEqual(state['status'], 'completed')
             self.assertEqual(self.client.get('/final-scorecard').status_code, 200)
             self.assertEqual(self.client.get('/final-scorecard').status_code, 200)
+            transcript = self.client.get('/api/conversation/transcript')
+            self.assertEqual(transcript.status_code, 200)
+            self.assertEqual(transcript.headers['Cache-Control'], 'no-store')
+            self.assertEqual(len(transcript.json['messages']), 7)
             self.assertEqual(evaluate.call_count, 2)
             self.assertEqual(score.call_count, 1)
             other = run.app.test_client()
@@ -63,6 +71,7 @@ class PostgreSQLVoiceEndpoints(unittest.TestCase):
                 session['voice_interview_id'] = identity
                 session['voice_interview_token'] = 'wrong-token'
             self.assertEqual(other.get('/api/conversation').status_code, 404)
+            self.assertEqual(other.get('/api/conversation/transcript').status_code, 404)
             journal = run.app.extensions['conversation'].journal
             with journal.sessions.begin() as db:
                 self.assertEqual(db.get(VoiceSnapshot, identity).state['status'], 'completed')
@@ -143,3 +152,85 @@ class PostgreSQLVoiceEndpoints(unittest.TestCase):
             self.assertEqual(self.client.get('/api/conversation').json['status'], 'error')
         finally:
             restarted.executor.shutdown(wait=True)
+
+    def test_manual_flow_uses_database_and_idempotent_forms(self):
+        plan = {"questions": [
+            {"question": "Explain Java", "skill": "Java", "type": "technical", "mock_follow_up": True},
+            {"question": "Explain a class", "skill": "Java", "type": "technical"}]}
+        with patch.object(run, 'extract_resume_text', return_value='Resume'), patch.object(run, 'generate_interview_plan', return_value=plan), patch.object(run, 'evaluate_answer', side_effect=mock_evaluate) as evaluate, patch.object(run, 'generate_final_scorecard', side_effect=mock_scorecard) as score:
+            response = self.client.post('/', data={'candidate_name': 'Candidate', 'job_description': 'Java', 'resume': (io.BytesIO(b'pdf'), 'resume.pdf')})
+            self.assertEqual(response.status_code, 302)
+            page = self.client.get('/start-interview')
+            token = re.search(rb'name="turn_id" value="([a-f0-9]+)"', page.data).group(1).decode()
+            payload = {'turn_id': token, 'answer': 'A language'}
+            first = self.client.post('/submit-answer', data=payload)
+            self.assertEqual(first.location, '/follow-up')
+            self.assertEqual(self.client.post('/submit-answer', data=payload).location, '/follow-up')
+            self.assertEqual(evaluate.call_count, 1)
+            page = self.client.get('/follow-up')
+            token = re.search(rb'name="turn_id" value="([a-f0-9]+)"', page.data).group(1).decode()
+            self.assertEqual(self.client.post('/submit-follow-up', data={'turn_id': token, 'answer': 'A project'}).location, '/start-interview')
+            page = self.client.get('/start-interview')
+            token = re.search(rb'name="turn_id" value="([a-f0-9]+)"', page.data).group(1).decode()
+            self.assertEqual(self.client.post('/submit-answer', data={'turn_id': token, 'answer': 'A class'}).location, '/final-scorecard')
+            self.assertEqual(self.client.get('/final-scorecard').status_code, 200)
+            self.assertEqual(self.client.get('/api/conversation/transcript').status_code, 200)
+            self.assertEqual(evaluate.call_count, 2)
+            self.assertEqual(score.call_count, 1)
+
+    def test_shared_session_and_mode_switch_keep_same_owned_interview(self):
+        plan = {"questions": [{"question": "Explain Java", "skill": "Java", "type": "technical"}]}
+        with patch.object(run, 'extract_resume_text', return_value='Resume'), patch.object(run, 'generate_interview_plan', return_value=plan):
+            self.client.post('/', data={'candidate_name': 'Candidate', 'job_description': 'Java', 'resume': (io.BytesIO(b'pdf'), 'resume.pdf')})
+            with self.client.session_transaction() as session:
+                identity = session['manual_interview_id']
+            cookie = self.client.get_cookie('session')
+            worker_script = "import sys, run; c=run.app.test_client(); c.set_cookie('session', sys.stdin.read()); r=c.get('/api/conversation/transcript'); print(r.status_code)"
+            worker = subprocess.run([sys.executable, '-c', worker_script], input=cookie.value, text=True, capture_output=True, timeout=20)
+            self.assertEqual(worker.returncode, 0, worker.stderr)
+            self.assertEqual(worker.stdout.strip(), '200')
+            other_worker = run.app.test_client()
+            other_worker.set_cookie('session', cookie.value)
+            started = other_worker.post('/api/conversation/start', json={})
+            self.assertEqual(started.status_code, 200)
+            self.assertEqual(started.json['interview_id'], identity)
+            self.assertEqual(other_worker.post('/api/conversation/control', json={'action': 'manual'}).status_code, 200)
+            page = other_worker.get('/start-interview')
+            self.assertIn(b'name="turn_id"', page.data)
+            with other_worker.session_transaction() as session:
+                self.assertEqual(session['manual_interview_id'], identity)
+            self.assertEqual(other_worker.get('/api/conversation/transcript').status_code, 200)
+
+    def test_manual_failed_evaluation_can_retry_saved_answer(self):
+        plan = {"questions": [{"question": "Explain Java", "skill": "Java", "type": "technical"}]}
+        with patch.object(run, 'extract_resume_text', return_value='Resume'), patch.object(run, 'generate_interview_plan', return_value=plan), patch.object(run, 'evaluate_answer', side_effect=[TimeoutError('mock timeout'), mock_evaluate({'question': 'Explain Java'}, 'Answer')]), patch.object(run, 'generate_final_scorecard', side_effect=mock_scorecard):
+            self.client.post('/', data={'candidate_name': 'Candidate', 'job_description': 'Java', 'resume': (io.BytesIO(b'pdf'), 'resume.pdf')})
+            page = self.client.get('/start-interview')
+            turn = re.search(rb'name="turn_id" value="([a-f0-9]+)"', page.data).group(1).decode()
+            self.assertEqual(self.client.post('/submit-answer', data={'turn_id': turn, 'answer': 'Saved answer'}).status_code, 503)
+            page = self.client.get('/start-interview')
+            self.assertIn(b'Saved answer</textarea>', page.data)
+            self.assertEqual(self.client.post('/submit-answer', data={'turn_id': turn, 'answer': 'Saved answer'}).location, '/final-scorecard')
+
+    def test_two_clients_submit_same_manual_turn_once(self):
+        plan = {"questions": [{"question": "Explain Java", "skill": "Java", "type": "technical"}]}
+        entered, release = threading.Event(), threading.Event()
+        calls = []
+        def evaluate(question, answer):
+            calls.append(answer)
+            entered.set()
+            release.wait(3)
+            return mock_evaluate(question, answer)
+        with patch.object(run, 'extract_resume_text', return_value='Resume'), patch.object(run, 'generate_interview_plan', return_value=plan), patch.object(run, 'evaluate_answer', side_effect=evaluate), patch.object(run, 'generate_final_scorecard', side_effect=mock_scorecard):
+            self.client.post('/', data={'candidate_name': 'Candidate', 'job_description': 'Java', 'resume': (io.BytesIO(b'pdf'), 'resume.pdf')})
+            page = self.client.get('/start-interview')
+            turn = re.search(rb'name="turn_id" value="([a-f0-9]+)"', page.data).group(1).decode()
+            second = run.app.test_client()
+            second.set_cookie('session', self.client.get_cookie('session').value)
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(client.post, '/submit-answer', data={'turn_id': turn, 'answer': 'Java'}) for client in (self.client, second)]
+                self.assertTrue(entered.wait(2))
+                release.set()
+                responses = [future.result(timeout=5) for future in futures]
+            self.assertTrue(all(response.status_code == 302 for response in responses))
+            self.assertEqual(calls, ['Java'])

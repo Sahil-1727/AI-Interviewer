@@ -104,6 +104,16 @@ class ConversationService:
         if identity:
             self.authorize(identity, session)
             return self.get(identity)
+        if hasattr(self.journal, "initialize") and session.get("manual_interview_id"):
+            identity = session["manual_interview_id"]
+            self.journal.authorize(identity, session.get("manual_interview_token"))
+            with self.journal.edit(identity) as state:
+                if state.get("status") == "manual":
+                    state.update(status="ready", paused=False)
+            session["voice_interview_id"] = identity
+            session["voice_interview_token"] = session.pop("manual_interview_token")
+            session.pop("manual_interview_id", None)
+            return self.get(identity)
         if hasattr(self.journal, "initialize"):
             identity, token = self.journal.initialize(session, mock)
             session["voice_interview_id"] = identity

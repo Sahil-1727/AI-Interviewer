@@ -63,6 +63,9 @@ def control():
     state = service().control(identity(), payload.get("action"))
     if payload.get("action") == "manual":
         copy_to_session(state, session)
+        if hasattr(service().journal, "initialize"):
+            session["manual_interview_id"] = session.get("voice_interview_id")
+            session["manual_interview_token"] = session.get("voice_interview_token")
         session.pop("voice_interview_id", None)
         session.pop("voice_interview_token", None)
     return reply(state)

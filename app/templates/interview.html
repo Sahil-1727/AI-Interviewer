@@ -145,11 +145,12 @@
                 </div>
             </section>
             <form method="POST" id="answer-form" data-submit-form data-interview-instance="{{ session.get('interview_instance_id', '') }}" action="{% if question.type == 'follow_up' %}/submit-follow-up{% else %}/submit-answer{% endif %}" class="answer-panel">
+                {% if manual_turn_id %}<input type="hidden" name="turn_id" value="{{ manual_turn_id }}">{% endif %}
                 <div class="answer-heading">
                     <label for="answer" id="answer-label">Transcript preview</label>
                     <span class="tiny-label" id="answer-caption">A CONVERSATION AT YOUR PACE</span>
                 </div>
-                <textarea id="answer" name="answer" rows="6" placeholder="Take a moment to think, then make it your own…" required aria-describedby="answer-help voice-status"></textarea>
+                <textarea id="answer" name="answer" rows="6" placeholder="Take a moment to think, then make it your own…" required aria-describedby="answer-help voice-status">{{ manual_draft or '' }}</textarea>
                 <div class="recording-toolbar manual-only">
                     <label class="tiny-label" hidden><input type="checkbox" id="automatic-voice"> Automatic voice turns (experimental)</label>
                     <div class="recording-controls">

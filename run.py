@@ -31,6 +31,8 @@ app = Flask(
 )
 app.config["MAX_CONTENT_LENGTH"] = 12 * 1024 * 1024
 
+if os.getenv("DATABASE_URL") and not os.getenv("SECRET_KEY"):
+    raise RuntimeError("SECRET_KEY must be set when using PostgreSQL-backed sessions.")
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key")
 
 
@@ -38,23 +40,23 @@ app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key")
 def upload_too_large(error):
     return jsonify(error="Recording or upload exceeds the 12 MB limit. Use shorter recording segments."), 413
 
-# Keep growing interview plans and history on the server. The browser cookie
-# contains only a session ID, so submitting later answers cannot exceed 4 KB.
-session_directory = Path(os.getenv("INTERVIEW_SESSION_DIR", str(Path(app.instance_path) / "sessions")))
-session_directory.mkdir(parents=True, exist_ok=True)
-app.config.update(
-    SESSION_TYPE="cachelib",
-    SESSION_CACHELIB=FileSystemCache(cache_dir=str(session_directory)),
-    SESSION_PERMANENT=False,
-)
-Session(app)
 voice_journal = None
 if os.getenv("DATABASE_URL"):
     from app.database import db, init_database
     from app.services.postgres_voice import PostgresVoiceJournal
     init_database(app)
+    app.config.update(SESSION_TYPE="sqlalchemy", SESSION_SQLALCHEMY=db,
+                      SESSION_SQLALCHEMY_TABLE="web_sessions", SESSION_PERMANENT=False,
+                      SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
+                      SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "0") == "1")
+    Session(app)
     with app.app_context():
         voice_journal = PostgresVoiceJournal(db.engine)
+else:
+    session_directory = Path(os.getenv("INTERVIEW_SESSION_DIR", str(Path(app.instance_path) / "sessions")))
+    session_directory.mkdir(parents=True, exist_ok=True)
+    app.config.update(SESSION_TYPE="cachelib", SESSION_CACHELIB=FileSystemCache(cache_dir=str(session_directory)), SESSION_PERMANENT=False)
+    Session(app)
 app.extensions["conversation"] = ConversationService(
     os.getenv("CONVERSATION_STATE_DIR", str(Path(app.instance_path) / "conversations")),
     lambda question, answer: evaluate_answer(question, answer),
@@ -62,6 +64,24 @@ app.extensions["conversation"] = ConversationService(
     voice_config(), journal=voice_journal,
 )
 app.register_blueprint(conversation_bp)
+
+
+@app.get('/api/conversation/transcript')
+def voice_transcript():
+    identity = session.get('voice_interview_id') or session.get('manual_interview_id')
+    token = session.get('voice_interview_token') or session.get('manual_interview_token')
+    journal = app.extensions['conversation'].journal
+    if not identity or not hasattr(journal, 'sessions'):
+        return jsonify(error='Interview not found.'), 404
+    from app.services.interview_repository import InterviewNotFound, export_transcript
+    try:
+        with journal.sessions.begin() as db_session:
+            messages = export_transcript(db_session, identity, token)
+    except InterviewNotFound:
+        return jsonify(error='Interview not found.'), 404
+    response = jsonify(interview_id=identity, messages=messages)
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 def sync_voice_session(manual=False):
@@ -75,6 +95,53 @@ def sync_voice_session(manual=False):
             session.pop("voice_interview_id", None)
             session.pop("voice_interview_token", None)
         return state
+
+
+def sync_manual_interview():
+    identity = session.get('manual_interview_id')
+    if not identity:
+        return None
+    service = app.extensions['conversation']
+    service.journal.authorize(identity, session.get('manual_interview_token'))
+    state = service.get(identity)
+    copy_to_session(state, session)
+    return state
+
+
+def submit_postgres_manual(answer):
+    service = app.extensions['conversation']
+    state = sync_manual_interview()
+    if not state:
+        return 'Interview session expired. Start a new interview.', 410
+    turn = request.form.get('turn_id')
+    if not turn:
+        return 'Reload the interview before submitting your answer.', 400
+    retry = state['status'] == 'error'
+    if retry and (not isinstance(answer, str) or answer.strip() != state.get('draft', '').strip()):
+        return 'Processing was interrupted. Retry with the saved answer shown on the page.', 409
+    if retry and state.get('paused'):
+        service.control(state['id'], 'resume')
+    if state['status'] == 'manual':
+        with service.journal.edit(state['id']) as stored:
+            if stored['status'] == 'manual':
+                stored.update(status='ready', paused=False)
+    payload = dict(turn_id=turn, request_id=uuid4().hex if retry else turn, answer=answer)
+    try:
+        state = service.accept(state['id'], payload, retry=retry)
+        deadline = time.monotonic() + voice_config()['REQUEST_TIMEOUT_SECONDS']
+        while state['status'] in {'evaluating', 'scoring', 'ending'} and time.monotonic() < deadline:
+            time.sleep(.1)
+            state = service.get(state['id'])
+        copy_to_session(state, session)
+        if state['status'] == 'error':
+            return 'Processing was interrupted. Refresh the interview to retry the saved answer.', 503
+        if state['status'] in {'evaluating', 'scoring', 'ending'}:
+            return 'Your answer is processing. Refresh the interview to continue.', 503
+        if state.get('current_follow_up'):
+            return redirect(url_for('follow_up'))
+        return redirect(url_for('final_scorecard' if state['status'] == 'completed' else 'start_interview'))
+    except ConversationError as error:
+        return error.args[0], error.status
 
 
 @app.errorhandler(ConversationError)
@@ -116,6 +183,12 @@ def home():
         session["current_question"] = 0
         session["interview_history"] = []
 
+        journal = app.extensions['conversation'].journal
+        if hasattr(journal, 'initialize'):
+            identity, token = journal.initialize(session, False)
+            session['manual_interview_id'] = identity
+            session['manual_interview_token'] = token
+
         return redirect(url_for("start_interview"))
 
     return render_template("index.html")
@@ -125,6 +198,7 @@ def home():
 def start_interview():
 
     voice_state = sync_voice_session()
+    manual_state = sync_manual_interview() if not voice_state else None
     interview_plan = session.get("interview_plan")
 
     if not interview_plan:
@@ -136,11 +210,17 @@ def start_interview():
     current_question = session.get("current_question", 0)
 
     if current_question >= len(questions):
-        if voice_state and voice_state["status"] != "completed":
+        active_state = voice_state or manual_state
+        if active_state and active_state["status"] != "completed":
             # A failed/in-flight scorecard must remain recoverable after refresh.
             return render_template("interview.html", candidate_name=session.get("candidate_name"),
-                                   question=questions[-1], question_number=len(questions), total_questions=len(questions))
+                                   question=questions[-1], question_number=len(questions), total_questions=len(questions),
+                                   manual_turn_id=manual_state['turn_id'] if manual_state else None,
+                                   manual_draft=manual_state.get('draft', '') if manual_state else '')
         return redirect(url_for("final_scorecard"))
+
+    if manual_state and manual_state.get('current_follow_up'):
+        return redirect(url_for('follow_up'))
 
     question = questions[current_question]
 
@@ -149,7 +229,8 @@ def start_interview():
         candidate_name=session.get("candidate_name"),
         question=question,
         question_number=current_question + 1,
-        total_questions=len(questions)
+        total_questions=len(questions), manual_turn_id=manual_state['turn_id'] if manual_state else None,
+        manual_draft=manual_state.get('draft', '') if manual_state and manual_state.get('status') == 'error' else ''
     )
 
 @app.route("/submit-answer", methods=["POST"])
@@ -158,6 +239,9 @@ def submit_answer():
     if session.get("voice_interview_id"):
         return "Switch to manual mode before using the answer form.", 409
     answer = request.form.get("answer")
+
+    if session.get('manual_interview_id'):
+        return submit_postgres_manual(answer)
 
     interview_plan = session.get("interview_plan")
 
@@ -185,6 +269,7 @@ def submit_answer():
 def follow_up():
 
     sync_voice_session()
+    manual_state = sync_manual_interview() if not session.get('voice_interview_id') else None
     follow_up_question = session.get("current_follow_up")
 
     if not follow_up_question:
@@ -197,7 +282,8 @@ def follow_up():
         candidate_name=session.get("candidate_name"),
         question=follow_up_question,
         question_number="Follow-up",
-        total_questions=""
+        total_questions="", manual_turn_id=manual_state['turn_id'] if manual_state else None,
+        manual_draft=manual_state.get('draft', '') if manual_state and manual_state.get('status') == 'error' else ''
     )
 @app.route("/submit-follow-up", methods=["POST"])
 def submit_follow_up():
@@ -205,6 +291,9 @@ def submit_follow_up():
     if session.get("voice_interview_id"):
         return "Switch to manual mode before using the answer form.", 409
     answer = request.form.get("answer")
+
+    if session.get('manual_interview_id'):
+        return submit_postgres_manual(answer)
 
     follow_up_question = session.get("current_follow_up")
 
@@ -222,7 +311,7 @@ def submit_follow_up():
 @app.route("/final-scorecard")
 def final_scorecard():
 
-    state = sync_voice_session()
+    state = sync_voice_session() or sync_manual_interview()
     if state and state["status"] != "completed":
         return redirect(url_for("start_interview"))
     interview_history = session.get("interview_history", [])
