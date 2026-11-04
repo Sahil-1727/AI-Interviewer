@@ -145,9 +145,12 @@ class ConversationService:
     def get(self, identity):
         with self.journal.edit(identity) as state:
             self._recover_stale(state)
-        self._schedule_early_scorecard(identity)
-        with self.journal.edit(identity) as state:
-            return deepcopy(state)
+            result = deepcopy(state)
+        if result.get('status') == 'ending':
+            self._schedule_early_scorecard(identity)
+            with self.journal.edit(identity) as state:
+                return deepcopy(state)
+        return result
 
     def _schedule_early_scorecard(self, identity):
         """Claim a single scorecard job after termination; polling retries admission."""

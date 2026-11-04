@@ -64,6 +64,13 @@ class ConversationTests(unittest.TestCase):
         self.wait(state['interview_id'])
         return self.client.get('/api/conversation').json
 
+    def test_ready_state_read_uses_one_journal_transaction(self):
+        state = self.start()
+        with patch.object(self.service.journal, 'edit', wraps=self.service.journal.edit) as edit:
+            result = self.service.get(state['interview_id'])
+        self.assertEqual(result['status'], 'ready')
+        self.assertEqual(edit.call_count, 1)
+
     def test_unanswered_is_idempotent_and_excluded_from_evaluation_and_scorecard(self):
         state = self.start()
         payload = dict(self.payload(state, ''), unanswered=True)

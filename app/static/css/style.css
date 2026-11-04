@@ -619,6 +619,29 @@ input:hover,textarea:hover {
     background: var(--tint);
     border-radius: 3px;
 }
+.scorecard-loading:not([hidden]) {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px;
+    margin: 12px 0;
+    background: var(--tint);
+    border-radius: 6px;
+}
+.scorecard-loading p { margin: 4px 0 0; }
+.scorecard-loading-indicator {
+    width: 20px;
+    height: 20px;
+    flex: none;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: scorecard-spin .8s linear infinite;
+}
+@keyframes scorecard-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+    .scorecard-loading-indicator { animation: none; }
+}
 .followup-note {
     font-size: 11px;
     color: var(--muted);

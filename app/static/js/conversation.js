@@ -71,6 +71,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
             COMPLETED: 'Complete', ERROR: 'Needs attention'
         }[next];
         if (message) $('voice-status').textContent = message;
+        $('scorecard-loading').hidden = !terminating || ['ERROR', 'RECOVERING', 'COMPLETED'].includes(next);
         $('start-interview').disabled = terminating || starting || bootstrapping || (active && !paused);
         $('start-interview').textContent = active ? 'Resume Interview' : 'Start Interview';
         $('conversation-recovery').hidden = !['ERROR', 'RECOVERING'].includes(next);

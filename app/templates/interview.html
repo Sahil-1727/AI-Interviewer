@@ -126,6 +126,10 @@
                     <button type="button" id="manual-mode" class="button button-text">Use manual mode</button>
                 </div>
                 <p id="voice-status" role="status" aria-live="polite">Start once, then answer naturally.</p>
+                <div id="scorecard-loading" class="scorecard-loading" role="status" aria-live="polite" hidden>
+                    <span class="scorecard-loading-indicator" aria-hidden="true"></span>
+                    <div><strong>Preparing your scorecard…</strong><p>We’re reviewing your completed answers. This may take a moment.</p></div>
+                </div>
                 <div id="microphone-activity" class="microphone-activity" hidden>
                     <span class="tiny-label">MICROPHONE ACTIVITY</span>
                     <meter id="microphone-level" min="0" max="1" value="0" aria-label="Microphone audio level"></meter>
