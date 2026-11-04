@@ -1,5 +1,10 @@
 # AI Interviewer
 
+> **Looking for the conversational voice version?** See the
+> [`feature/free-deployment` branch](https://github.com/Sahil-1727/AI-Interviewer/tree/feature/free-deployment)
+> for automatic voice interviews, Deepgram speech services, and PostgreSQL.
+> This `main` branch contains the original manual interview experience.
+
 A Flask application for interview practice using a job description and PDF resume.
 Google Gemini generates personalized questions, evaluates answers, and produces a
 final scorecard.
