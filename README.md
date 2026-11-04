@@ -1,169 +1,205 @@
 # AI Interviewer
 
-A Flask application for interview practice using a job description and PDF resume.
-Google Gemini generates personalized questions, evaluates answers, and produces a
-final scorecard.
+An AI interview practice application built with Flask. It uses a candidate's job
+description and PDF resume to create questions, conduct an interview, and produce
+an evidence-based scorecard. The `feature/free-deployment` branch includes
+conversational voice interviews, Deepgram, and PostgreSQL support.
 
-## Current features
+## Features
 
-- PDF resume upload and text extraction with `pypdf`; resumes must contain
-  extractable text (OCR for scanned PDFs is not implemented).
-- Personalized technical, project, problem-solving, and behavioral questions.
-- Automated answer evaluation with scores from 0–10 and adaptive follow-ups.
-- Typed answers or microphone recordings transcribed with `faster-whisper`.
-  Manual-mode transcripts remain editable before submission; transcription uses English.
-- On-demand question audio through `edge-tts`, with playback and stop controls.
-- Hands-free voice interviews: click Start Interview once for automatic listening,
-  transcription, evaluation, follow-ups, question playback, and the final scorecard.
-- Optional camera preview. Video is displayed live in the browser only; the
-  application does not record, store, or analyze video.
-- Redesigned, responsive setup, interview, and report pages with labeled controls,
-  keyboard focus indicators, status messages, and reduced-motion support.
-- Final scorecards with overall and competency scores, strengths, areas to improve,
-  technical and communication assessments, a recommendation, and a printable report.
+- Generate a plan of up to 10 main questions with Google Gemini, prioritizing the
+  job description and keeping resume questions high-level. Adaptive follow-ups
+  can add questions during the interview.
+- Practice in manual mode with typed answers or use the hands-free conversational
+  voice mode. Manual audio recording uses faster-whisper; typed answers work with
+  either speech provider.
+- Listen to questions, repeat them, pause and resume, say “I'm done,” or use
+  **Done Speaking**. Commands depend on speech recognition and may not always be
+  recognized.
+- Review pre-interview instructions and check the microphone. The camera is
+  optional and provides a browser preview only; video is not recorded or analyzed.
+- View a final scorecard, or end early and receive a provisional result based on
+  completed evaluations. Unanswered questions are tracked separately; if there
+  are no evaluated answers, the result reports insufficient evidence.
+- Store interviews and sessions in PostgreSQL when configured. The authenticated
+  session can export its interview transcript as JSON.
 
-## Interview flow
+The interview is turn-based rather than a full-duplex conversation. In automatic
+voice mode, the default is 10 seconds to begin speaking and 5 seconds of silence
+after recognized speech to finish an answer. Pause when you need more time.
+These thresholds are configurable; see `.env.example`. The microphone is closed
+while the AI question is playing.
 
-The interview is turn-based:
+## Technology
 
-1. Enter a candidate name and job description, then upload a PDF resume.
-2. Gemini creates an interview plan; the prompt requests 10–15 questions.
-3. Click **Start Interview** once. After each question finishes playing, answer
-   naturally. Five seconds of silence after speech finishes an answer and advances
-   automatically; use Pause when you need more time.
-   Choose **Use manual mode** for the original typed/record-and-submit workflow.
-4. Gemini evaluates the submitted answer. If a follow-up is needed, answer it
-   before advancing to the next main question. Follow-up answers are saved with
-   the original answer for the final assessment.
-5. After the last main question and any follow-up, view the final scorecard.
+- **Application:** Python, Flask, Flask-Sock, Gunicorn, HTML, CSS, JavaScript.
+- **Interview planning and evaluation:** Google Gemini.
+- **Speech recognition:** local faster-whisper, or Deepgram Nova-3 streaming.
+- **Question audio:** Edge TTS, or Deepgram Aura-2.
+- **Persistence:** PostgreSQL through SQLAlchemy and Flask-Migrate; local
+  filesystem storage is available when no database is configured.
+- **Resume parsing:** `pypdf` for PDFs containing extractable text. Scanned PDFs
+  without text are not supported by OCR.
 
-Automatic mode updates questions without reloading the interview room. Camera
-preview remains live across questions. Microphone and camera require browser
-permission; both remain optional in manual mode. See [the voice implementation
-and testing guide](docs/realtime-voice.md) for architecture, thresholds, recovery,
-endpoint contracts, measured results and deployment limitations.
+For Deepgram streaming, browser microphone audio goes through an authenticated
+Flask WebSocket relay to Deepgram; the API key stays on the server. Gemini and
+Deepgram calls require internet access and may incur provider usage or charges.
 
-## Installation and startup
+## Local setup
 
-From the project root, with Python 3 and pip available (macOS/Linux):
+Use Python 3.14, Git, and a modern browser with microphone access. From the
+project directory:
 
-```bash
+```sh
 python3 -m venv venv
-venv/bin/python -m pip install -r requirements.txt
+source venv/bin/activate
+pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Set the required variable in `.env` using your own Gemini API key:
+On Windows, activate the environment with `venv\Scripts\activate` instead. Edit
+`.env` and set your own `GEMINI_API_KEY`; do not commit or share it. The default
+local providers are `STT_PROVIDER=whisper` and `TTS_PROVIDER=edge`. Whisper runs
+on the local CPU and may download its model the first time it is used. Edge TTS
+requires internet access.
 
-```dotenv
-GEMINI_API_KEY=your_gemini_api_key_here
-```
-
-Optional: set `WHISPER_MODEL` to choose the transcription model (default: `base`).
-Transcription runs locally on the CPU; the first use may download model files.
-Gemini requests and question audio generation require internet access.
+For Deepgram, set `STT_PROVIDER=deepgram`, `TTS_PROVIDER=deepgram`, and a private
+`DEEPGRAM_API_KEY` in `.env`. The defaults are Nova-3 and Aura-2 Thalia; model
+settings and timeouts are in `.env.example`. Deepgram STT supports the automatic
+voice flow. Manual mode still supports typing, but manual recorded-audio
+transcription requires `STT_PROVIDER=whisper`.
 
 Start the application:
 
-```bash
-venv/bin/python run.py
+```sh
+python run.py
 ```
 
-Open <http://127.0.0.1:5000>. This command runs the Flask development server with
-debug mode off. Set `FLASK_DEBUG=1` explicitly for local debugging.
+Open <http://127.0.0.1:5000>, enter a name and job description, and upload a PDF
+resume. Review the instructions and microphone check, then start the interview
+or choose manual mode. Browser microphone and camera access require permission;
+remote deployments require HTTPS.
 
-## Session storage
+## Storage and security
 
-Flask-Session uses CacheLib filesystem storage in `instance/sessions/`, created
-at startup and ignored by Git. Interview plans, answers, evaluations, and progress
-stay on the server; the browser cookie contains only a session ID, avoiding the
-cookie size limit as interview history grows.
+With `DATABASE_URL` and a private, stable `SECRET_KEY`, manual and voice interview
+state, questions, answers, follow-ups, evaluations, transcripts, scorecards, and
+server-side sessions use PostgreSQL. See the
+[PostgreSQL guide](docs/postgresql-integration.md) for ownership, session expiry,
+recovery, and migration details. Lost or expired browser sessions do not have an
+account-based recovery flow. Existing file-backed data is not automatically
+imported into PostgreSQL; the importer is not implemented.
 
-After upgrading from cookie-based sessions, restart the application and **start a
-new interview**. Existing browser-cookie interview data is not migrated.
-This local session storage is not database integration. Automatic conversations
-also use private, atomically replaced journals in `instance/conversations/`.
-They provide turn idempotency across workers on one host sharing that directory;
-interrupted external API calls require explicit recovery. See the voice guide
-before deploying multiple hosts.
+Without `DATABASE_URL`, the app uses local filesystem-backed sessions and voice
+journals under `instance/`. This option is for local use or a single host with
+appropriate shared storage; it is not a substitute for shared database storage
+across deployment hosts.
 
-## Mocked regression tests
+Never commit `.env`, API keys, database passwords, or generated interview data.
+Use HTTPS, secure cookies, a strong `SECRET_KEY`, and provider spending limits for
+hosted use. Interview access uses session-bound capabilities; it is not a full
+candidate account or authentication system. Test rate limits behind your proxy
+before public use. Sessions, recordings, and provider data are subject to the
+configured services and retention policies.
 
-With dependencies installed and the environment configured, run:
+## Database migrations
 
-```bash
-venv/bin/python -m unittest discover -s tests -v
+Create or select the target PostgreSQL database, configure `DATABASE_URL` and
+`SECRET_KEY` privately, and review the migration scripts before applying them.
+For an existing database, back up your data first. From an activated environment:
+
+```sh
+flask --app app.database:migration_app db current
+flask --app app.database:migration_app db upgrade
 ```
 
-`tests/test_interview_flow.py` mocks resume extraction and Gemini operations. It
-checks completion with large answers across 10- and 15-question interviews,
-follow-ups, cookie size, completed-session redirects, missing follow-ups, and
-new-interview state reset. These tests do not make Gemini API calls.
+Run migrations before starting a fresh hosted service; the session interface can
+otherwise create a table that conflicts with its migration. Do not run database
+reset or downgrade commands on valuable data. The application does not migrate
+old file journals automatically.
 
-The root-level `test_gemini.py`, `test_stt.py`, and `test_tts.py` are manual service
-scripts, separate from this mocked suite; they may contact external services,
-load models, or require local audio files.
+## Render deployment
+
+The lightweight `requirements-production.txt` omits faster-whisper, PyAV,
+NumPy, and Edge TTS. `requirements.txt` retains those packages for local use.
+For a Render deployment using Deepgram and PostgreSQL:
+
+```text
+Build: pip install -r requirements-production.txt
+Start: gunicorn -c gunicorn.conf.py run:app
+```
+
+Set `APP_ENV=production`, `DATABASE_URL`, `SECRET_KEY`, `GEMINI_API_KEY`,
+`DEEPGRAM_API_KEY`, `STT_PROVIDER=deepgram`, `TTS_PROVIDER=deepgram`, and
+`SESSION_COOKIE_SECURE=1` in the host's environment. Render supplies `PORT`.
+The default Gunicorn configuration uses one threaded worker. See the
+[Render guide](docs/render-free.md) for migration order, limits, and deployment
+checks. A real deployment, live provider behavior, and peak memory under load must
+be validated for the intended environment; a local mock test alone does not prove
+that a 512 MB instance can support a particular workload.
+
+## Testing
+
+Run the automated Python and JavaScript suites without using live Gemini,
+Deepgram, or TTS credentials:
+
+```sh
+python -m unittest discover -s tests -v
+node --test tests/*.test.cjs
+```
+
+PostgreSQL integration tests require a **dedicated, migrated test database** and
+`TEST_DATABASE_URL`; endpoint tests also require the application to start with
+`DATABASE_URL` pointing to that test database. Run those tests separately from
+the filesystem-session tests. Never point test settings at a database containing
+valuable data. See the [PostgreSQL guide](docs/postgresql-integration.md) and
+individual test files for setup.
+
+For a local demo with mocked interview decisions:
+
+```sh
+PYTHONPATH=. python tests/voice_demo.py
+```
+
+Open <http://127.0.0.1:5001/voice-demo>. By default, STT and TTS are real and can
+use network services or download models. The root-level `test_gemini.py`,
+`test_stt.py`, and `test_tts.py` are manual service scripts and can consume API
+quota or require local audio. `tests/browser_deepgram.cjs` is a Playwright browser
+fixture intended for a separately configured mocked test server.
 
 ## Project structure
 
 ```text
-AI Interviewer/
-├── run.py                       # Active Flask app, routes, and session configuration
-├── requirements.txt
-├── .env.example                 # Environment variable template
-├── app/
-│   ├── services/
-│   │   ├── gemini.py            # Interview planning, evaluation, and scorecards
-│   │   ├── resume_parser.py     # PDF text extraction
-│   │   ├── conversation.py      # Background orchestration and idempotency journal
-│   │   ├── interview_flow.py    # Shared manual/voice progression
-│   │   ├── voice_commands.py    # Conservative standalone voice commands
-│   │   ├── stt.py               # Bounded audio decoding, Silero VAD and Whisper
-│   │   └── tts.py               # Question audio generation
-│   ├── static/
-│   │   ├── css/style.css
-│   │   └── js/                  # ui.js, voice.js, voice-turns.js, conversation.js, camera.js
-│   ├── templates/               # Shared layout, components, setup, interview, scorecard
-│   ├── routes/                  # conversation.py is registered; interview.py is the earlier unused blueprint
-│   ├── models/                  # Placeholder package; no database models
-│   └── prompts/                 # Placeholder package; prompts currently in gemini.py
-├── tests/test_interview_flow.py # Mocked regression suite
-├── test_gemini.py               # Manual service scripts
-├── test_stt.py
-├── test_tts.py
-└── instance/sessions/           # Generated local session data; ignored by Git
+run.py                          Flask application, routes, session setup
+app/services/                   Gemini, speech, interview flow, persistence
+app/routes/                     Conversation API and Deepgram WebSocket relay
+app/models/                     SQLAlchemy models
+app/static/                     Browser voice, camera, and UI assets
+app/templates/                  Setup, interview, and scorecard pages
+app/voice_config.py             Voice thresholds and limits
+migrations/                     Flask-Migrate database revisions
+tests/                          Mocked and PostgreSQL/browser integration tests
+docs/                           Voice, PostgreSQL, and Render guides
+requirements.txt                Full local dependencies
+requirements-production.txt     Lightweight Deepgram deployment dependencies
 ```
 
-The local `.env` and `venv/` are also ignored by Git.
+## Current limitations and planned work
 
-## Planned work
+- Voice recognition can miss words, misinterpret commands, or react to background
+  noise. If streaming fails, retry and repeat any words that were not finalized.
+- The system waits for turn completion, Gemini evaluation, and question audio;
+  it is not yet a low-latency, full-duplex voice conversation. Actual timing and
+  recovery need testing with real devices, providers, and the deployment network.
+- Background processing is not a durable job queue. Interrupted provider calls
+  require explicit recovery, and retries can result in another provider request.
+- **Planned: evaluate LiveKit** for a future real-time voice architecture,
+  including streaming audio and interruption handling. LiveKit is not currently
+  integrated; the architecture, deployment, costs, and migration plan are still
+  to be decided.
+- Further work includes candidate authentication and session recovery, robust
+  usage limits, broader browser/device testing, and production monitoring.
 
-- Database integration for persistent interview records (not implemented yet).
-- Interview analytics.
-- Production deployment configuration.
-
-## Conversational voice testing
-
-Ordinary tests use no Gemini quota:
-
-```bash
-venv/bin/python -m unittest discover -s tests -v
-node --test tests/voice_turns.test.cjs
-```
-
-For a complete deterministic interview with **real microphone/STT/TTS but mocked
-Gemini**, launch a separate process:
-
-```bash
-PYTHONPATH=. venv/bin/python tests/voice_demo.py
-```
-
-Open <http://127.0.0.1:5001/voice-demo>, check the microphone and acknowledge the
-instructions, then click **Start Interview**. The camera check is optional. The fixture asks two main questions and one follow-up and
-opens a mock scorecard automatically. The demo replaces Gemini in that process
-only, including manual form submissions. STT may download its configured Whisper
-model on first use; TTS still needs internet. Run `run.py` normally for real Gemini.
-
-[Full verification instructions and results](docs/realtime-voice.md) include real
-Chromium tests and the opt-in real-service smoke test. The latter consumes quota;
-it is excluded from automatic test discovery.
+Some older historical material in [the voice guide](docs/realtime-voice.md)
+describes earlier branch behavior; use the provider and deployment sections above
+for the current `feature/free-deployment` configuration.
