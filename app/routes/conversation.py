@@ -1,5 +1,8 @@
 """HTTP conversation protocol. All identities are resolved from the Flask session."""
 from flask import Blueprint, current_app, jsonify, request, session
+import json
+import os
+from datetime import timedelta
 from app.services.conversation import ConversationError, public_state
 from app.services.interview_flow import copy_to_session
 
@@ -36,6 +39,37 @@ def reply(state, status=200):
 @conversation_bp.post("/start")
 def start():
     return reply(service().start(session, mock=current_app.config.get("VOICE_MOCK_MODE", False)))
+
+
+@conversation_bp.post('/livekit/session')
+def livekit_session():
+    """Issue an opt-in room token only to the owner of an active interview."""
+    if os.getenv('LIVEKIT_ENABLED', '0') != '1':
+        return jsonify(error='LiveKit voice mode is not enabled.'), 404
+    interview_id = identity()
+    state = service().get(interview_id)
+    if state.get('status') != 'ready' or state.get('paused') or state.get('end_requested'):
+        raise ConversationError('This interview is not ready for a voice session.', 409)
+    url = os.getenv('LIVEKIT_URL', '').strip()
+    key = os.getenv('LIVEKIT_API_KEY', '').strip()
+    secret = os.getenv('LIVEKIT_API_SECRET', '').strip()
+    if not all((url, key, secret)) or not url.startswith('wss://'):
+        return jsonify(error='LiveKit voice mode is not configured.'), 503
+    from livekit.api import AccessToken, VideoGrants, RoomConfiguration, RoomAgentDispatch
+    room = 'interview-' + interview_id
+    agent_name = os.getenv('LIVEKIT_AGENT_NAME', 'ai-interviewer')
+    # Job metadata is intentionally limited to the interview identifier; it
+    # does not contain a browser session, access token, resume, or credentials.
+    metadata = json.dumps({'interview_id': interview_id}, separators=(',', ':'))
+    token = (AccessToken(key, secret).with_identity('candidate-' + interview_id)
+             .with_ttl(timedelta(minutes=5))
+             .with_grants(VideoGrants(room_join=True, room=room, can_publish=True,
+                                      can_subscribe=True, can_publish_data=False))
+             .with_room_config(RoomConfiguration(agents=[RoomAgentDispatch(agent_name=agent_name, metadata=metadata)]))
+             .to_jwt())
+    response = jsonify(url=url, token=token, room=room)
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 @conversation_bp.get("")
