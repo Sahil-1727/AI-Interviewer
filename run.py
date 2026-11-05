@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from cachelib.file import FileSystemCache
-from flask import jsonify, send_file
+from flask import jsonify, send_file, g
 from flask_session import Session
 from sqlalchemy.exc import SQLAlchemyError
 from google.genai import errors as gemini_errors
@@ -32,8 +32,12 @@ app = Flask(
     template_folder="app/templates",
     static_folder="app/static"
 )
+# Load LiveKit's token/room SDK during process startup, not on the candidate's
+# first click. The first import can otherwise add noticeable cold-start delay.
+if os.getenv('LIVEKIT_ENABLED', '0') == '1':
+    from livekit.api import AccessToken as _LiveKitAccessToken  # noqa: F401
 app.jinja_env.globals['livekit_enabled'] = os.getenv('LIVEKIT_ENABLED', '0') == '1'
-app.jinja_env.globals['livekit_primary'] = os.getenv('APP_ENV') == 'production'
+app.jinja_env.globals['livekit_primary'] = os.getenv('LIVEKIT_ENABLED', '0') == '1'
 app.config["MAX_CONTENT_LENGTH"] = int(os.getenv('MAX_REQUEST_BYTES', str(12 * 1024 * 1024)))
 app.config['SOCK_SERVER_OPTIONS'] = {'max_message_size': 256 * 1024, 'ping_interval': 25}
 if app.config['MAX_CONTENT_LENGTH'] <= 0:
@@ -108,6 +112,22 @@ def check_session_storage():
         return jsonify(error='This voice transport is unavailable.'), 404
     if getattr(session, '_storage_unavailable', False):
         return jsonify(error='Service temporarily unavailable.'), 503
+
+
+@app.before_request
+def begin_voice_request_timing():
+    if request.path.startswith('/api/conversation'):
+        g.voice_request_started = time.perf_counter()
+
+
+@app.after_request
+def log_voice_request_timing(response):
+    started = getattr(g, 'voice_request_started', None)
+    if started is not None:
+        app.logger.info('voice_http_timing method=%s path=%s status=%d ms=%.1f',
+                        request.method, request.path, response.status_code,
+                        (time.perf_counter() - started) * 1000)
+    return response
 
 
 from app.security import init_security
@@ -436,7 +456,11 @@ def final_scorecard():
         candidate_name=session.get("candidate_name"),
         scorecard=scorecard,
         early_ended=early_ended,
-        answered_questions=sum(bool(item.get("evaluation")) for item in interview_history),
+        answered_questions=(
+            sum(bool(item.get('evaluation')) and item.get('type') != 'follow_up' for item in interview_history)
+            if state and state.get('agent_led') else
+            sum(bool(item.get("evaluation")) for item in interview_history)
+        ),
         unanswered_questions=[entry for item in interview_history
                               for entry in (item, item.get("follow_up", {}))
                               if entry.get("status") == "Unanswered"],

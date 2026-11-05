@@ -70,7 +70,8 @@ document.addEventListener('DOMContentLoaded', () => {
     dialog.addEventListener('cancel', event => event.preventDefault());
     document.addEventListener('interview:ready', event => {
         if (event.detail.existing) revealQuestion();
-        if (!event.detail.existing && typeof dialog.showModal === 'function' && !dialog.open) dialog.showModal();
+        const resumeLivekit = event.detail.existing && start.hidden && document.body.dataset.interviewMode === 'voice';
+        if ((!event.detail.existing || resumeLivekit) && typeof dialog.showModal === 'function' && !dialog.open) dialog.showModal();
         buttons();
     });
     window.addEventListener('pagehide', () => { ++generation; });

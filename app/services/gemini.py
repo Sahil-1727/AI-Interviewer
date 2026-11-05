@@ -1,7 +1,9 @@
 import os
 import json
+import time
 from functools import lru_cache
 from google import genai
+from google.genai.errors import ServerError
 from google.genai import types
 from dotenv import load_dotenv
 
@@ -88,7 +90,7 @@ internship expectations in the job description.
 
 
     response = get_client().models.generate_content(
-        model=os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"),
+        model=os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"),
         contents=prompt
     )
 
@@ -195,10 +197,21 @@ Rules:
    assigning a very low score. Keep every assessment evidence-based.
 """
 
-    response = get_client().models.generate_content(
-        model=os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"),
-        contents=prompt
-    )
+    retries = int(os.getenv('GEMINI_EVALUATION_RETRIES', '1'))
+    delay = max(0.0, float(os.getenv('GEMINI_EVALUATION_RETRY_DELAY_SECONDS', '0.5')))
+    if not 0 <= retries <= 3:
+        raise ValueError('GEMINI_EVALUATION_RETRIES must be between 0 and 3.')
+    for attempt in range(retries + 1):
+        try:
+            response = get_client().models.generate_content(
+                model=os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"),
+                contents=prompt
+            )
+            break
+        except ServerError as error:
+            if getattr(error, 'code', None) not in {500, 502, 503, 504} or attempt >= retries:
+                raise
+            time.sleep(delay * (attempt + 1))
 
     response_text = response.text.strip()
 
@@ -283,10 +296,24 @@ Communication, etc., depending on what was actually assessed.
 9. Keep the final summary concise and professional.
 """
 
-    response = get_client().models.generate_content(
-        model=os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"),
-        contents=prompt
-    )
+    # Scorecard generation is read-only and safe to retry after transient
+    # provider overload. Keep this separate from evaluation retries so the
+    # interview answer is never submitted or evaluated twice.
+    retries = int(os.getenv('GEMINI_SCORECARD_RETRIES', '1'))
+    delay = max(0.0, float(os.getenv('GEMINI_SCORECARD_RETRY_DELAY_SECONDS', '0.5')))
+    if not 0 <= retries <= 3:
+        raise ValueError('GEMINI_SCORECARD_RETRIES must be between 0 and 3.')
+    for attempt in range(retries + 1):
+        try:
+            response = get_client().models.generate_content(
+                model=os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"),
+                contents=prompt
+            )
+            break
+        except ServerError as error:
+            if getattr(error, 'code', None) not in {500, 502, 503, 504} or attempt >= retries:
+                raise
+            time.sleep(delay * (attempt + 1))
 
     response_text = response.text.strip()
 

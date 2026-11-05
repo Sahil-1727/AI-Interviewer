@@ -26,6 +26,9 @@ DEFAULTS = {
     "TTS_TIMEOUT_SECONDS": 60,
     "CONVERSATION_WORKERS": 2,
     "CONVERSATION_QUEUE_LIMIT": 4,
+    # Final transcript evaluations are independent Gemini requests. Bound
+    # concurrency to shorten end-of-interview wait without flooding the API.
+    "LIVEKIT_FINALIZE_EVALUATION_CONCURRENCY": 4,
     "CONVERSATION_STALE_SECONDS": 240,
     "CONVERSATION_RETENTION_SECONDS": 86400,
     "NOISE_FLOOR_MULTIPLIER": 2.5,
@@ -58,6 +61,9 @@ def voice_config():
     for name in ("CONVERSATION_WORKERS", "CONVERSATION_QUEUE_LIMIT", "MAX_PENDING_SEGMENTS", "WHISPER_BEAM_SIZE"):
         if settings[name] != int(settings[name]) or settings[name] < 1:
             raise ValueError(f"{name} must be a positive integer")
+    if (settings["LIVEKIT_FINALIZE_EVALUATION_CONCURRENCY"] != int(settings["LIVEKIT_FINALIZE_EVALUATION_CONCURRENCY"])
+            or not 1 <= settings["LIVEKIT_FINALIZE_EVALUATION_CONCURRENCY"] <= 4):
+        raise ValueError("LIVEKIT_FINALIZE_EVALUATION_CONCURRENCY must be an integer from 1 to 4")
     if not 0 < settings["NOISE_FLOOR_SMOOTHING"] <= 1 or settings["STT_MAX_NO_SPEECH_PROB"] > 1:
         raise ValueError("Noise smoothing and no-speech probability must be within 0–1")
     return settings

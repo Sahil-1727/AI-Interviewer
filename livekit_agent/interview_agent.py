@@ -9,12 +9,10 @@ from uuid import uuid4
 import httpx
 from livekit.agents import Agent, AgentServer, AgentSession, JobContext, StopResponse, TurnHandlingOptions, cli, inference, llm
 
+from livekit_agent.config import LLM_MODEL, STT_MODEL, TTS_MODEL, TTS_VOICE
+
 log = logging.getLogger('interview_agent')
 server = AgentServer()
-STT_MODEL = 'assemblyai/universal-3-6-pro'
-LLM_MODEL = 'google/gemma-4-31b-it'
-TTS_MODEL = 'fishaudio/s2.1-pro'
-TTS_VOICE = 'fa4c9eb3dccc4806b382b40d61c6b10a'
 
 
 class InterviewBackend:
@@ -127,7 +125,20 @@ async def entrypoint(ctx: JobContext):
     metadata = json.loads(ctx.job.metadata)
     ticket = metadata['ticket']
     backend = InterviewBackend(os.environ['INTERVIEW_BACKEND_URL'], os.environ['LIVEKIT_AGENT_SHARED_SECRET'], ticket)
-    session = create_session()
+    agent_mode = os.getenv('LIVEKIT_AGENT_MODE', 'conversational').strip().lower()
+    if agent_mode not in {'conversational', 'flask'}:
+        raise ValueError('LIVEKIT_AGENT_MODE must be conversational or flask.')
+    if agent_mode == 'conversational':
+        from livekit_agent.conversational_agent import ConversationalInterviewAgent, create_conversational_session
+        from livekit_agent.transcript_writer import TranscriptWriter
+        context = await backend.call('context')
+        session = create_conversational_session(context)
+        transcript_writer = TranscriptWriter(backend, lambda: ctx.shutdown('transcript persistence failed'))
+        agent = ConversationalInterviewAgent(context)
+    else:
+        session = create_session()
+        transcript_writer = None
+        agent = None
 
     async def say(text):
         await session.say(text, allow_interruptions=True)
@@ -146,15 +157,6 @@ async def entrypoint(ctx: JobContext):
                 # Stop provider audio when authorization or the backend fails.
                 ctx.shutdown('interview authorization unavailable')
                 return
-
-    @session.on('metrics_collected')
-    def on_metrics(event):
-        metrics = event.metrics
-        if metrics.type == 'eou_metrics':
-            log.info('voice_metric stage=end_of_speech_detection ms=%.1f', metrics.end_of_utterance_delay * 1000)
-            log.info('voice_metric stage=stt_finalization ms=%.1f', metrics.transcription_delay * 1000)
-        elif metrics.type == 'tts_metrics':
-            log.info('voice_metric stage=tts_first_byte ms=%.1f', metrics.ttfb * 1000)
 
     @session.on('agent_state_changed')
     def on_agent_state(event):
@@ -178,17 +180,40 @@ async def entrypoint(ctx: JobContext):
             asyncio.ensure_future(session.interrupt())
         elif message == {'action': 'resume'}:
             async def resume():
-                await controller.present(await backend.call('state'))
+                if agent_mode == 'flask':
+                    await controller.present(await backend.call('state'))
+                else:
+                    await session.generate_reply(instructions=(
+                        'The candidate has resumed. Continue naturally from the conversation so far. '
+                        'If your last question was cut off, repeat it; otherwise invite the candidate '
+                        'to continue without repeating completed questions.'))
             asyncio.create_task(resume())
+        elif message == {'action': 'finalize'} and transcript_writer:
+            async def finalize():
+                try:
+                    await session.commit_user_turn()
+                    await session.interrupt()
+                    await transcript_writer.flush()
+                    await backend.call('finalize')
+                    await ctx.room.local_participant.publish_data(
+                        json.dumps({'action': 'finalize-ready'}), reliable=True,
+                        destination_identities=[expected], topic='interview.control.ack')
+                except Exception:
+                    log.warning('LiveKit transcript finalization could not be flushed.')
+            asyncio.create_task(finalize())
 
-    await session.start(agent=InterviewAgent(controller), room=ctx.room)
-    await ctx.connect()
+    if transcript_writer:
+        transcript_writer.start(session)
+    await session.start(agent=agent or InterviewAgent(controller), room=ctx.room)
     monitor = asyncio.create_task(enforce_session_lifetime())
     try:
-        await controller.present(await backend.call('state'))
+        if agent_mode == 'flask':
+            await controller.present(await backend.call('state'))
         await asyncio.Event().wait()
     finally:
         monitor.cancel()
+        if transcript_writer:
+            await transcript_writer.close()
         await backend.close()
 
 

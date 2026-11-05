@@ -33,7 +33,10 @@ def init_security(app):
         if app.config['RATE_LIMIT_ENABLED'] and os.getenv('DATABASE_URL'):
             from app.database import db
             path = request.path
-            agent_path = path in {'/api/conversation/livekit/agent/state', '/api/conversation/livekit/agent/answer'}
+            # Every agent action is authenticated by the bearer secret and
+            # scoped dispatch ticket in the route itself. Apply the agent
+            # request bucket to the whole service-to-service endpoint family.
+            agent_path = path.startswith('/api/conversation/livekit/agent/')
             limit = int(os.getenv('RATE_LIMIT_AGENT_PER_MINUTE', '600') if agent_path else
                         os.getenv('RATE_LIMIT_LOGIN_PER_MINUTE', '5') if path == '/login' else
                         os.getenv('RATE_LIMIT_AUDIO_PER_MINUTE', '30') if path in {'/api/transcribe', '/api/synthesize', '/api/voice/stream'}
@@ -57,7 +60,7 @@ def init_security(app):
                     return response
             except Exception:
                 return jsonify(error='Service temporarily unavailable.'), 503
-        agent_request = request.path in {'/api/conversation/livekit/agent/state', '/api/conversation/livekit/agent/answer'}
+        agent_request = request.path.startswith('/api/conversation/livekit/agent/')
         if app.config['CSRF_ENABLED'] and not streaming and not agent_request:
             expected = session.get('_csrf_token')
             supplied = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token')

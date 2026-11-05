@@ -7,16 +7,30 @@ has been measured. Changes are local and have not been pushed or deployed.
 
 ## Architecture
 
-The existing Flask application remains authoritative for interview plans,
-Gemini evaluation, follow-ups, scorecards, and PostgreSQL persistence. Browser
-audio travels through LiveKit WebRTC to a separate agent process. The agent
-uses LiveKit Inference with the same model identifiers and voice as the local
-standalone demo:
+Flask handles login, resume and job-description processing, creates the
+approved interview plan, owns interview access, stores transcript events, and
+generates Gemini evaluations and the final scorecard. Browser audio travels
+over LiveKit WebRTC to the separate Python agent. The conversational agent
+speaks directly with the candidate, follows the approved plan, handles
+turn-taking and interruptions, and can ask contextual follow-ups. Its live
+response does not wait for Flask polling or a per-answer Gemini evaluation.
+Transcript items are sent to Flask in order with retry and idempotency. When
+the candidate selects **End Interview**, Flask evaluates saved question and
+answer pairs asynchronously and then serves the cached scorecard. Keep the
+interview page open until that scorecard is ready.
+
+At End Interview, any transcript pairs not yet evaluated are sent to Gemini
+with bounded concurrency (`LIVEKIT_FINALIZE_EVALUATION_CONCURRENCY`, default 4,
+allowed range 1–4), then one scorecard request is made. Each successful answer
+evaluation is saved immediately, so a retry only re-evaluates failed or missing
+answers. Application logs include `livekit_evaluations`, `livekit_scorecard`,
+and `livekit_finalization` timings to distinguish provider time from polling.
+
+The agent uses the same model identifiers and voice as the local standalone
+demo through LiveKit Inference:
 
 - AssemblyAI `assemblyai/universal-3-6-pro` for streaming STT.
-- Google `google/gemma-4-31b-it` for interpreting standalone repeat requests;
-  it does not choose questions or score answers. The original answer text is
-  sent to Flask, and a model error falls back to preserving that text.
+- Google `google/gemma-4-31b-it` for the conversational agent.
 - Fish Audio `fishaudio/s2.1-pro`, voice
   `fa4c9eb3dccc4806b382b40d61c6b10a`, for streaming TTS.
 
@@ -63,8 +77,9 @@ new daily admission. Expired records are closed during admission and heartbeat;
 `flask --app run cleanup-expired-interviews` can close expired usage records
 without deleting interviews.
 
-The worker polls Flask and shuts down if the interview ends or authorization
-fails; the browser also attempts to disconnect at the deadline. This is **not a
+The worker checks Flask authorization and session lifetime and shuts down if
+the interview ends or authorization fails; the browser also attempts to
+disconnect at the deadline. This is **not a
 guaranteed provider billing cap**: a crash, network partition, already-issued
 room token, or delayed shutdown can still consume LiveKit/WebRTC or provider
 resources. Configure usage alerts, billing limits, and account safeguards in the
@@ -111,7 +126,7 @@ value as Flask), and `INTERVIEW_BACKEND_URL`. Use HTTPS for the backend except
 
 ```sh
 pip install -r requirements-livekit-agent.txt
-python livekit_agent/interview_agent.py dev
+python -m livekit_agent.interview_agent dev
 ```
 
 `Dockerfile.livekit` is an initial separate worker image. Docker is unavailable
@@ -148,19 +163,19 @@ python scripts/livekit_demo.py agent
 ```
 
 Open `http://127.0.0.1:5000`, create an interview, check the microphone, and
-select **Start LiveKit interview (experimental)**. Test an answer, an
-interruption, repeat, Done Speaking, pause/resume, a follow-up, disconnect and
-reconnect, End Interview, and the scorecard. Verify each answer is evaluated
-once and belongs to the right question. For restricted-login testing, configure
+select **Start LiveKit interview (experimental)**. Test a spoken answer,
+interruption, repeat, Done Speaking, pause/resume, a contextual follow-up,
+disconnect/reconnect, and End Interview. Keep the page open until the
+scorecard-loading indicator redirects to the scorecard. For restricted-login
+testing, configure
 `RESTRICTED_ACCESS=1` and `RESTRICTED_ACCOUNTS_JSON` for the local processes.
 The launcher creates a new Flask session secret on restart.
 
 ## Remaining verification and limitations
 
 - Complete real browser-to-agent audio and Cloud deployment tests have not run.
-  Model intent classification may misinterpret a repeat request; it needs testing
-  on natural speech. Provider/model support is verified from documentation and
-  demo source, not through a new live API call.
+  The model may misinterpret a repeat request or ask an off-plan follow-up; test
+  natural speech with the standalone demo credentials before deployment.
 - Browser reconnect creates a new room generation and rejects superseded agents,
   but cross-worker behavior, stale room cleanup, token expiry, partial audio,
   and account revocation during a network partition need live testing.
@@ -169,7 +184,9 @@ The launcher creates a new Flask session secret on restart.
   deletion during a worker crash or prolonged network partition.
 - Prompt-injection resistance, login throttling behind the target proxy, password
   management, transcript privacy, and concurrent load require security review.
-- Worker logs include timing fields for STT, Gemini evaluation, and TTS. Browser
+- Worker logs include timing fields for STT endpointing, TTS first byte, and
+  turn-to-speaking. Flask evaluations run at interview end, not after each
+  spoken turn. Browser
   active-speaker timing is an estimate, not an exact first-audible measurement.
   No CPU, memory, latency or live cost measurements are available.
 - The worker image has not been built or smoke-tested because Docker is absent.

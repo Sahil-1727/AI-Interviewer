@@ -38,6 +38,14 @@ class LiveKitPostgresTests(unittest.TestCase):
                 return json.loads(claims['roomConfig']['agents'][0]['metadata'])['ticket']
             old_ticket, new_ticket = ticket(), ticket()
             state = client.post('/api/conversation/livekit/agent/state', json={'ticket': new_ticket}, headers=headers).json
+            event = {'ticket': new_ticket, 'turn_id': state['turn_id'], 'event_id': uuid4().hex,
+                     'kind': 'candidate', 'text': 'Java is a language.'}
+            def send_event(_):
+                with run.app.test_client() as c:
+                    return c.post('/api/conversation/livekit/agent/event', json=event, headers=headers).status_code
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                self.assertEqual(sorted(pool.map(send_event, range(2))), [202, 202])
+            self.assertEqual(len(run.app.extensions['conversation'].get(state['interview_id'])['livekit_events']), 1)
             payload = {'turn_id': state['turn_id'], 'request_id': uuid4().hex, 'answer': 'Java is a language.'}
             self.assertEqual(client.post('/api/conversation/livekit/agent/answer', json={**payload, 'ticket': old_ticket}, headers=headers).status_code, 409)
             def send(_):

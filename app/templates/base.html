@@ -11,7 +11,9 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="{{ url_for('static', filename='js/ui.js') }}" defer></script>
 </head>
-<body class="{% block body_class %}{% endblock %}">
+<body class="{% block body_class %}{% endblock %}"
+      data-livekit-primary="{{ '1' if livekit_primary else '0' }}"
+      data-has-livekit-session="{{ '1' if session.get('voice_interview_id') else '0' }}">
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
         <a class="brand" href="{{ url_for('home') }}" aria-label="AI Interviewer home"><span class="brand-mark" aria-hidden="true">i<span>·</span></span> AI Interviewer</a>

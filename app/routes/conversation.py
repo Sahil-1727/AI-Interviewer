@@ -90,7 +90,10 @@ def livekit_session():
                                       can_subscribe=True, can_publish_data=True))
              .with_room_config(RoomConfiguration(agents=[RoomAgentDispatch(agent_name=agent_name, metadata=metadata)]))
              .to_jwt())
-    response = jsonify(url=url, token=token, room=room,
+    agent_mode = os.getenv('LIVEKIT_AGENT_MODE', 'conversational').strip().lower()
+    if agent_mode not in {'conversational', 'flask'}:
+        raise ConversationError('LiveKit agent mode is not configured.', 503)
+    response = jsonify(url=url, token=token, room=room, agent_mode=agent_mode,
                        expires_at=expires_at.isoformat() if expires_at else None)
     response.headers['Cache-Control'] = 'no-store'
     return response
@@ -122,6 +125,52 @@ def livekit_agent(action):
             version = scope.get('account_version')
             if owner not in configured or not isinstance(version, str) or not hmac.compare_digest(version, account_version(configured[owner])):
                 return jsonify(error='Interview access is unavailable.'), 403
+    if action == 'context':
+        # The plan and candidate context travel only over the authenticated
+        # worker connection, never in the browser's room token or metadata.
+        with service().journal.edit(interview_id) as current:
+            if current.get('livekit_generation') != generation:
+                raise ConversationError('This voice session has been replaced.', 409)
+            if current.get('end_requested') or current.get('status') in {'ended', 'completed'}:
+                raise ConversationError('This interview has ended.', 410)
+            context = {
+                'interview_plan': current.get('interview_plan', {}),
+                'candidate_name': current.get('candidate_name', ''),
+                'evaluation_context': current.get('evaluation_context', {}),
+                'current_question': current.get('current_question', 0),
+                'current_follow_up': current.get('current_follow_up'),
+                'interview_history': current.get('interview_history', []),
+            }
+            if not current.get('agent_led'):
+                current['agent_led'] = True
+            if current.get('agent_led') and current.get('livekit_events'):
+                transcript, _answered, next_main, pending_question = service().reconcile_livekit_transcript(current)
+                context['interview_history'] = transcript
+                context['current_question'] = next_main
+                if pending_question:
+                    context['current_follow_up'] = {'question': pending_question}
+        if restricted_enabled():
+            from app.services.interview_quota import active
+            if not active(interview_id):
+                return jsonify(error='Interview time limit reached.'), 410
+        response = jsonify(context)
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    if action == 'event':
+        if restricted_enabled():
+            from app.services.interview_quota import active
+            if not active(interview_id):
+                return jsonify(error='Interview time limit reached.'), 410
+        event = service().append_livekit_event(interview_id, generation, body)
+        response = jsonify(event_id=event['event_id'], sequence=event['sequence'])
+        response.headers['Cache-Control'] = 'no-store'
+        return response, 202
+    if action == 'finalize':
+        if restricted_enabled():
+            from app.services.interview_quota import active
+            if not active(interview_id):
+                return jsonify(error='Interview time limit reached.'), 410
+        return reply(service().finalize_livekit(interview_id), 202)
     if action == 'state':
         with service().journal.edit(interview_id) as current:
             if current.get('livekit_generation') != generation:
@@ -131,7 +180,7 @@ def livekit_agent(action):
             from app.services.interview_quota import active, finish
             if state.get('status') == 'completed':
                 finish(interview_id)
-            elif not active(interview_id):
+            elif not active(interview_id) and not state.get('end_requested'):
                 service().control(interview_id, 'end')
                 return jsonify(error='Interview time limit reached.'), 410
         return reply(state)
@@ -167,7 +216,11 @@ def control():
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         raise ConversationError("A JSON object is required.", 400)
-    state = service().control(identity(), payload.get("action"))
+    interview_id = identity()
+    if payload.get('action') == 'end' and service().get(interview_id).get('agent_led'):
+        state = service().finalize_livekit(interview_id)
+    else:
+        state = service().control(interview_id, payload.get("action"))
     if payload.get('action') == 'end' and restricted_enabled():
         from app.services.interview_quota import finish
         finish(state['id'])

@@ -88,6 +88,64 @@ class PostgreSQLVoiceEndpoints(unittest.TestCase):
                 self.assertTrue(all(evaluation.score == 7.5 for evaluation in evaluations))
                 messages = db.scalars(select(ConversationMessage).where(ConversationMessage.interview_id == identity).order_by(ConversationMessage.sequence)).all()
                 self.assertEqual([m.kind for m in messages], ['question', 'answered', 'follow_up', 'answered', 'question', 'answered', 'completion'])
+
+    def test_livekit_conversation_transcript_evaluation_and_scorecard(self):
+        """The direct agent path persists its transcript and final result in PostgreSQL."""
+        import json
+        import jwt
+        from uuid import uuid4
+
+        env = {'LIVEKIT_ENABLED': '1', 'LIVEKIT_URL': 'wss://example.test',
+               'LIVEKIT_API_KEY': 'test-key', 'LIVEKIT_API_SECRET': 'test-secret-test-secret-test-secret',
+               'LIVEKIT_AGENT_SHARED_SECRET': 'worker-secret-worker-secret-worker-secret',
+               'LIVEKIT_AGENT_MODE': 'conversational', 'APP_ENV': 'testing', 'RESTRICTED_ACCESS': '0'}
+        headers = {'Authorization': 'Bearer ' + env['LIVEKIT_AGENT_SHARED_SECRET']}
+        with patch.dict(os.environ, env), patch.object(run, 'evaluate_answer', side_effect=mock_evaluate) as evaluate, \
+                patch.object(run, 'generate_final_scorecard', side_effect=mock_scorecard) as score:
+            self.assertEqual(self.client.post('/api/conversation/start', json={}).status_code, 200)
+            issued = self.client.post('/api/conversation/livekit/session', json={})
+            self.assertEqual(issued.status_code, 200, issued.get_data(as_text=True))
+            claims = jwt.decode(issued.json['token'], env['LIVEKIT_API_SECRET'], algorithms=['HS256'],
+                                options={'verify_aud': False})
+            ticket = json.loads(claims['roomConfig']['agents'][0]['metadata'])['ticket']
+            def agent(action, **payload):
+                return self.client.post('/api/conversation/livekit/agent/' + action,
+                    json={'ticket': ticket, **payload}, headers=headers)
+            self.assertEqual(agent('context').status_code, 200)
+            pairs = [('Explain Java', 'I built a small inventory application.'),
+                     ('Can you share an example?', 'I learned to organize classes and test behavior.')]
+            turns = [('Explain Java.', pairs[0][1]), (pairs[1][0], pairs[1][1]),
+                     ('Explain a class', 'A class describes data and behavior.')]
+            for question, answer in turns:
+                for kind, text in [('interviewer', question), ('candidate', answer)]:
+                    saved = agent('event', event_id=uuid4().hex, turn_id=uuid4().hex,
+                                  kind=kind, text=text)
+                    self.assertEqual(saved.status_code, 202, saved.get_data(as_text=True))
+            self.assertEqual(agent('finalize').status_code, 202)
+            for _ in range(300):
+                state = self.client.get('/api/conversation').json
+                if state['status'] in {'completed', 'error'}:
+                    break
+                time.sleep(.01)
+            self.assertEqual(state['status'], 'completed')
+            self.assertEqual(evaluate.call_count, 3)
+            self.assertEqual(score.call_count, 1)
+            self.assertEqual(self.client.get('/final-scorecard').status_code, 200)
+            transcript = self.client.get('/api/conversation/transcript')
+            self.assertEqual(transcript.status_code, 200)
+            self.assertEqual([item['text'] for item in transcript.json['messages'][:6]],
+                             [value for pair in turns for value in pair])
+            identity = state['interview_id']
+            with run.app.app_context(), run.app.extensions['conversation'].journal.sessions() as db_session:
+                questions = db_session.scalars(select(Question).where(Question.interview_id == identity)).all()
+                answers = db_session.scalars(select(Answer).where(Answer.question_id.in_([q.id for q in questions]))).all()
+                self.assertEqual(len(answers), 3)
+                evaluations = db_session.scalars(select(Evaluation).where(
+                    Evaluation.answer_id.in_([a.id for a in answers]))).all()
+                scorecards = db_session.scalars(select(Scorecard).where(
+                    Scorecard.interview_id == identity)).all()
+                self.assertEqual(len(evaluations), 3)
+                self.assertEqual(len(scorecards), 1)
                 self.assertIsNotNone(db.scalar(select(Scorecard).where(Scorecard.interview_id == identity)))
 
     def test_concurrent_workers_and_early_end_reject_late_evaluation(self):

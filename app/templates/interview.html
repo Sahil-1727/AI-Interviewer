@@ -83,7 +83,7 @@
     </div>
     <div class="interview-grid">
         <div class="conversation-column">
-            <section class="question-panel" aria-labelledby="interview-question">
+            <section id="question-panel" class="question-panel" {% if livekit_primary %}hidden{% endif %} aria-labelledby="interview-question">
                 <div class="interviewer-band">
                     <div class="interviewer-identity">
                         <div class="voice-symbol" aria-hidden="true">
@@ -102,7 +102,7 @@
                 </div>
                 <div class="question-content" id="question-content" style="visibility: hidden">
                     <div class="question-meta">
-                        <span class="eyebrow" id="question-count">
+                        <span class="eyebrow" id="question-count" {% if livekit_primary %}hidden{% endif %}>
                             {% if is_followup %}FOLLOW-UP QUESTION{% else %}QUESTION {{ '%02d'|format(current) }}{% if total %}
                             <span class="muted">/ {{ '%02d'|format(total) }}</span>
                             {% endif %}{% endif %}
@@ -110,9 +110,9 @@
                         <span class="skill-tag" id="question-skill">{{ question.skill }}</span>
                     </div>
                     <p class="followup-note" id="followup-note" {% if not is_followup %}hidden{% endif %}>Let’s explore your last answer a little further.</p>
-                    <h2 id="interview-question">{{ question.question }}</h2>
+                    <h2 id="interview-question" {% if livekit_primary %}hidden{% endif %} aria-live="polite">{{ question.question }}</h2>
                     <div class="question-bottom">
-                        <div class="audio-controls">
+                        <div class="audio-controls" {% if livekit_primary %}hidden{% endif %}>
                             <button type="button" id="speak-question" class="button button-text">{{ icon('speaker') }} Listen / repeat question</button>
                             <button type="button" id="stop-speaking" class="button button-text muted" disabled>{{ icon('stop') }} Stop audio</button>
                         </div>
@@ -157,7 +157,7 @@
                     <span class="tiny-label" id="answer-caption">A CONVERSATION AT YOUR PACE</span>
                 </div>
                 <textarea id="answer" name="answer" rows="6" placeholder="Take a moment to think, then make it your own…" required aria-describedby="answer-help voice-status">{{ manual_draft or '' }}</textarea>
-                <div class="recording-toolbar manual-only">
+                <div class="recording-toolbar manual-only" {% if livekit_primary %}hidden{% endif %}>
                     <label class="tiny-label" hidden><input type="checkbox" id="automatic-voice"> Automatic voice turns (experimental)</label>
                     <div class="recording-controls">
                         <button type="button" id="start-recording" class="button button-secondary">{{ icon('mic') }} Record answer</button>

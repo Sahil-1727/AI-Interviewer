@@ -188,9 +188,10 @@ requirements-production.txt     Lightweight Flask deployment dependencies
 
 - Voice recognition can miss words, misinterpret commands, or react to background
   noise. If streaming fails, retry and repeat any words that were not finalized.
-- The system waits for turn completion, Gemini evaluation, and question audio;
-  it is not yet a low-latency, full-duplex voice conversation. Actual timing and
-  recovery need testing with real devices, providers, and the deployment network.
+- In LiveKit mode, the agent handles the spoken turns directly and Flask saves
+  transcript events asynchronously. Gemini evaluation and scorecard generation
+  happen when the candidate ends the interview. Live-audio latency and recovery
+  still need testing with real devices, providers, and the deployment network.
 - Background processing is not a durable job queue. Interrupted provider calls
   require explicit recovery, and retries can result in another provider request.
 - LiveKit integration, restricted accounts, and usage limits are experimental;

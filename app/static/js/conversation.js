@@ -47,6 +47,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
     let failureKind = null;
     let bootstrapping = true;
     let terminating = false;
+    let livekitOwnsVoice = false;
     const metrics = [];
     const completedCaptures = new Set();
     window.voiceMetrics = metrics;
@@ -162,6 +163,7 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
     }
 
     async function receive(state) {
+        if (livekitOwnsVoice) return;
         if (snapshot && state.version < snapshot.version) return;
         const changed = snapshot && snapshot.turn_id !== state.turn_id;
         if (snapshot && snapshot.interview_id !== state.interview_id) throw new Error('The active interview changed. Return to the setup page.');
@@ -264,21 +266,24 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
     }
 
     async function begin() {
-        if (starting || bootstrapping || answer.form.dataset.submitting === 'true') return;
+        if (livekitOwnsVoice || starting || bootstrapping || answer.form.dataset.submitting === 'true') return;
         starting = true;
+        const token = operation;
         active = true; paused = false;
         document.body.dataset.interviewMode = 'voice';
         voice.setManaged(true);
         setState('PREPARING', 'Preparing your interview.');
         try {
             await voice.unlock();
+            if (token !== operation || livekitOwnsVoice) return;
             const state = await api('/start', {});
+            if (token !== operation || livekitOwnsVoice) return;
             try { sessionStorage.removeItem(manualModeKey); } catch (_) {}
             if (!snapshot) { snapshot = state; restoreDraft(state); }
             if (state.paused) await api('/control', {action: 'resume'});
             await receive({...state, paused: false});
-        } catch (error) { recover(error); }
-        finally { starting = false; $('start-interview').disabled = terminating || (active && !paused); }
+        } catch (error) { if (token === operation) recover(error); }
+        finally { starting = false; if (!livekitOwnsVoice) $('start-interview').disabled = terminating || (active && !paused); }
     }
 
     async function pauseInterview() {
@@ -345,6 +350,13 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
     }
 
     $('start-interview').addEventListener('click', () => void (active ? resumeInterview() : begin()));
+    document.addEventListener('interview:livekit-own-voice', () => {
+        livekitOwnsVoice = true;
+        active = false; paused = true; pending = null; ++operation;
+        clearTimeout(pollTimer);
+        voice.discard();
+        document.body.dataset.interviewMode = 'voice';
+    });
     $('retry-conversation').addEventListener('click', () => void retry());
     $('manual-mode').addEventListener('click', async () => {
         const wasActive = active;
@@ -445,6 +457,15 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
 
     async function bootstrap() {
         document.body.dataset.interviewMode = 'idle';
+        // In LiveKit-primary mode, LiveKit owns interview startup and voice
+        // state. Avoid a competing legacy GET /api/conversation on page load;
+        // the LiveKit controller restores only an existing session if needed.
+        if (document.body.dataset.livekitPrimary === '1') {
+            bootstrapping = false;
+            setState('IDLE', 'Start once, then answer naturally. Your interviewer will guide the conversation.');
+            document.dispatchEvent(new CustomEvent('interview:ready', {detail: {existing: false}}));
+            return;
+        }
         let restoredManual = false;
         try {
             const state = await api();

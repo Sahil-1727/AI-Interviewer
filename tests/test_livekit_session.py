@@ -1,5 +1,6 @@
 """Session admission tests; no LiveKit service or provider calls."""
 import os
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -150,3 +151,185 @@ class LiveKitInterviewFlowTests(unittest.TestCase):
                   'answer': 'stale answer'}).status_code, 409)
         self.assertEqual(self.call('answer', turn_id=state['turn_id'], request_id=uuid4().hex,
                                    answer='current answer').status_code, 202)
+
+    def test_context_is_scoped_to_current_agent_and_not_public(self):
+        response = self.call('context')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers['Cache-Control'], 'no-store')
+        self.assertEqual(response.json['interview_plan']['questions'][0]['question'], 'Explain Java.')
+        self.assertNotIn('jobs', response.json)
+        self.assertNotIn('owner_account', response.json)
+        self.assertEqual(self.client.post('/api/conversation/livekit/agent/context',
+            json={'ticket': self.ticket}).status_code, 403)
+        old_ticket = self.ticket
+        self.client.post('/api/conversation/livekit/session')
+        self.assertEqual(self.client.post('/api/conversation/livekit/agent/context', headers=self.headers,
+            json={'ticket': old_ticket}).status_code, 409)
+
+    def test_event_is_durable_idempotent_and_rejects_changed_payload(self):
+        from uuid import uuid4
+        state = self.call('state').json
+        event = {'event_id': uuid4().hex, 'turn_id': state['turn_id'],
+                 'kind': 'candidate', 'text': 'My original answer.'}
+        first, repeat = self.call('event', **event), self.call('event', **event)
+        self.assertEqual((first.status_code, repeat.status_code), (202, 202))
+        self.assertEqual(first.json, repeat.json)
+        self.assertEqual(self.call('event', **{**event, 'text': 'Changed'}).status_code, 409)
+        identity = state['interview_id']
+        self.assertEqual(len(self.service.get(identity)['livekit_events']), 1)
+        self.assertEqual(self.client.post('/api/conversation/livekit/agent/event', json=event).status_code, 403)
+        old_ticket = self.ticket
+        self.client.post('/api/conversation/livekit/session')
+        self.assertEqual(self.client.post('/api/conversation/livekit/agent/event', headers=self.headers,
+            json={'ticket': old_ticket, **event}).status_code, 409)
+
+    def test_concurrent_retries_append_one_event(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from uuid import uuid4
+        state = self.call('state').json
+        identity = state['interview_id']
+        generation = self.service.get(identity)['livekit_generation']
+        event = {'event_id': uuid4().hex, 'turn_id': state['turn_id'],
+                 'kind': 'candidate', 'text': 'A single answer.'}
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(lambda _: self.service.append_livekit_event(identity, generation, event), range(8)))
+        self.assertEqual({item['sequence'] for item in results}, {0})
+        self.assertEqual(len(self.service.get(identity)['livekit_events']), 1)
+
+    def test_expired_agent_cannot_append_an_event(self):
+        from datetime import datetime, timedelta, timezone
+        from uuid import uuid4
+        state = self.call('state').json
+        with self.service.journal.edit(state['interview_id']) as current:
+            current['livekit_expires_at'] = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        result = self.call('event', event_id=uuid4().hex, turn_id=state['turn_id'],
+                           kind='candidate', text='An answer.')
+        self.assertEqual(result.status_code, 410)
+        self.assertNotIn('livekit_events', self.service.get(state['interview_id']))
+
+    def test_agent_led_transcript_is_evaluated_and_scorecard_is_built(self):
+        from uuid import uuid4
+        state = self.call('state').json
+        self.assertEqual(self.call('context').status_code, 200)
+        for role, text in [('interviewer', 'Explain Java.'),
+                           ('candidate', 'I built a small Java application.'),
+                           ('interviewer', 'Can you share an example?'),
+                           ('candidate', 'I used classes in that application.'),
+                           ('interviewer', 'Explain classes.'),
+                           ('candidate', 'A class describes objects and behavior.')]:
+            saved = self.call('event', event_id=uuid4().hex, turn_id=uuid4().hex,
+                              kind=role, text=text)
+            self.assertEqual(saved.status_code, 202)
+        response = self.call('finalize')
+        self.assertEqual(response.status_code, 202)
+        for _ in range(300):
+            state = self.call('state').json
+            if state['status'] in {'completed', 'error'}:
+                break
+            time.sleep(.01)
+        self.assertEqual(state['status'], 'completed')
+        snapshot = self.service.get(state['interview_id'])
+        self.assertEqual([row['question'] for row in snapshot['interview_history']],
+                         ['Explain Java.', 'Can you share an example?', 'Explain classes.'])
+        self.assertEqual([row['type'] for row in snapshot['interview_history']],
+                         ['technical', 'follow_up', 'technical'])
+        self.assertTrue(all(row.get('evaluation') for row in snapshot['interview_history']))
+        self.assertTrue(snapshot['final_scorecard'])
+        self.assertEqual(snapshot['status'], 'completed')
+        self.assertFalse(snapshot['early_ended'])
+
+    def test_finalization_retries_only_the_failed_gemini_evaluation(self):
+        from uuid import uuid4
+        from unittest.mock import Mock
+        from google.genai.errors import ServerError
+        from app.services.conversation import mock_evaluate
+
+        state = self.call('state').json
+        self.assertEqual(self.call('context').status_code, 200)
+        evaluation = mock_evaluate({'question': 'Explain Java.', 'skill': 'Java', 'type': 'technical'},
+                                  'Java is an object-oriented language.')
+        evaluator = Mock(side_effect=[ServerError(503, {'error': {'message': 'temporary'}}), evaluation])
+        self.service.evaluator = evaluator
+        for kind, text in [('interviewer', 'Explain Java.'),
+                           ('candidate', 'Java is an object-oriented language.')]:
+            self.assertEqual(self.call('event', event_id=uuid4().hex, turn_id=state['turn_id'],
+                                       kind=kind, text=text).status_code, 202)
+
+        finalize_response = self.call('finalize')
+        self.assertEqual(finalize_response.status_code, 202, finalize_response.json)
+        for _ in range(300):
+            state = self.call('state').json
+            if state['status'] == 'error':
+                break
+            time.sleep(.01)
+        self.assertEqual(state['finalization_error_stage'], 'evaluate_answer')
+        self.assertEqual(evaluator.call_count, 1)
+
+        finalize_response = self.call('finalize')
+        self.assertEqual(finalize_response.status_code, 202, finalize_response.json)
+        for _ in range(300):
+            state = self.call('state').json
+            if state['status'] in {'completed', 'error'}:
+                break
+            time.sleep(.01)
+        self.assertEqual(state['status'], 'completed')
+        self.assertEqual(evaluator.call_count, 2)
+
+    def test_finalization_evaluates_independent_answers_concurrently(self):
+        from threading import Barrier, Lock
+        from uuid import uuid4
+        from app.services.conversation import mock_evaluate
+
+        state = self.call('state').json
+        self.assertEqual(self.call('context').status_code, 200)
+        self.service.settings = dict(self.service.settings)
+        self.service.settings['LIVEKIT_FINALIZE_EVALUATION_CONCURRENCY'] = 2
+        barrier = Barrier(2)
+        active_lock = Lock()
+        active = 0
+        peak_active = 0
+
+        def evaluator(question, answer):
+            nonlocal active, peak_active
+            with active_lock:
+                active += 1
+                peak_active = max(peak_active, active)
+            try:
+                barrier.wait(timeout=2)
+                return mock_evaluate(question, answer)
+            finally:
+                with active_lock:
+                    active -= 1
+
+        self.service.evaluator = evaluator
+        for question, answer in [('Explain Java.', 'Java is an object-oriented language.'),
+                                 ('Explain classes.', 'A class describes an object.')]:
+            self.assertEqual(self.call('event', event_id=uuid4().hex, turn_id=state['turn_id'],
+                                       kind='interviewer', text=question).status_code, 202)
+            self.assertEqual(self.call('event', event_id=uuid4().hex, turn_id=state['turn_id'],
+                                       kind='candidate', text=answer).status_code, 202)
+
+        finalize_response = self.call('finalize')
+        self.assertEqual(finalize_response.status_code, 202, finalize_response.json)
+        for _ in range(500):
+            state = self.call('state').json
+            if state['status'] in {'completed', 'error'}:
+                break
+            time.sleep(.01)
+        self.assertEqual(state['status'], 'completed')
+        self.assertEqual(peak_active, 2)
+
+    def test_livekit_repeat_command_is_not_evaluated_as_an_answer(self):
+        state = {'interview_plan': {'questions': [{'question': 'Explain Java.', 'skill': 'Java'}]},
+                 'current_question': 0, 'livekit_events': [
+                     {'kind': 'interviewer', 'text': 'Explain Java.'},
+                     {'kind': 'candidate', 'text': 'Could you repeat the question?'},
+                     {'kind': 'interviewer', 'text': 'Explain Java.'},
+                     {'kind': 'candidate', 'text': 'Java is an object-oriented language.'},
+                 ]}
+        rows, answered, next_question, pending = self.service.reconcile_livekit_transcript(state)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['answer'], 'Java is an object-oriented language.')
+        self.assertEqual(answered, {0})
+        self.assertEqual(next_question, 0)
+        self.assertIsNone(pending)

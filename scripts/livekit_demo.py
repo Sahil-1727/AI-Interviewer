@@ -40,7 +40,8 @@ def demo_environment(settings, inherited=None):
     env.update({key: value for key, value in settings.items() if value is not None})
     env.update(DATABASE_URL=demo, APP_ENV='testing', SESSION_COOKIE_SECURE='0',
                LIVEKIT_ENABLED='1', STT_PROVIDER='whisper', TTS_PROVIDER='edge',
-               FLASK_DEBUG='0', INTERVIEW_BACKEND_URL='http://127.0.0.1:5000')
+               LIVEKIT_AGENT_MODE='conversational', FLASK_DEBUG='0',
+               INTERVIEW_BACKEND_URL='http://127.0.0.1:5000')
     # The agent and browser do not need the production Flask session secret.
     env['SECRET_KEY'] = secrets.token_urlsafe(48)
     return env
@@ -54,7 +55,7 @@ def main():
     except ValueError as error:
         raise SystemExit(str(error)) from None
     os.chdir(ROOT)
-    args = [sys.executable, 'run.py'] if sys.argv[1] == 'flask' else [sys.executable, 'livekit_agent/interview_agent.py', 'dev']
+    args = [sys.executable, 'run.py'] if sys.argv[1] == 'flask' else [sys.executable, '-m', 'livekit_agent.interview_agent', 'dev']
     print('Starting local LiveKit demo using demo_db_url.', flush=True)
     os.execve(sys.executable, args, env)
 

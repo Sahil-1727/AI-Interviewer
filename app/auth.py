@@ -43,8 +43,10 @@ def init_auth(app):
 
     @app.before_request
     def require_login():
+        # Agent endpoints perform their own bearer-secret and signed-ticket
+        # checks in conversation.livekit_agent. They have no browser session.
         if (request.endpoint in {'access.login', 'access.logout', 'static', 'readiness'} or
-                request.path in {'/api/conversation/livekit/agent/state', '/api/conversation/livekit/agent/answer'}):
+                request.path.startswith('/api/conversation/livekit/agent/')):
             return None
         configured = accounts()
         name = session.get('account_name')

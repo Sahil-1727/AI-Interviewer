@@ -29,3 +29,8 @@ class DemoLauncherTests(unittest.TestCase):
         self.settings['LIVEKIT_API_KEY'] = ''
         with self.assertRaisesRegex(ValueError, 'LIVEKIT_API_KEY'):
             demo_environment(self.settings)
+
+    def test_worker_launcher_uses_package_entrypoint_without_secret_output(self):
+        from pathlib import Path
+        source = (Path(__file__).parents[1] / 'scripts' / 'livekit_demo.py').read_text()
+        self.assertIn("'-m', 'livekit_agent.interview_agent', 'dev'", source)

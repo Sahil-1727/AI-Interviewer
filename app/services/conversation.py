@@ -108,13 +108,17 @@ class ConversationService:
         if hasattr(self.journal, "initialize") and session.get("manual_interview_id"):
             identity = session["manual_interview_id"]
             self.journal.authorize(identity, session.get("manual_interview_token"), session.get('account_name'))
+            snapshot = None
             with self.journal.edit(identity) as state:
                 if state.get("status") == "manual":
                     state.update(status="ready", paused=False)
+                    snapshot = deepcopy(state)
             session["voice_interview_id"] = identity
             session["voice_interview_token"] = session.pop("manual_interview_token")
             session.pop("manual_interview_id", None)
-            return self.get(identity)
+            # Reuse the locked row snapshot after the manual-to-voice handoff;
+            # a second read transaction is unnecessary on this hot path.
+            return snapshot if snapshot is not None else self.get(identity)
         if hasattr(self.journal, "initialize"):
             identity, token = self.journal.initialize(session, mock)
             session["voice_interview_id"] = identity
@@ -135,7 +139,233 @@ class ConversationService:
         if hasattr(self.journal, "authorize"):
             self.journal.authorize(identity, session.get("voice_interview_token"), session.get('account_name'))
 
+    def append_livekit_event(self, identity, generation, payload):
+        """Store one immutable agent event under the interview's existing lock.
+
+        Events stay separate from the existing answer history during live
+        conversation, then finalize_livekit reconciles completed Q/A pairs for
+        the existing evaluator and scorecard service.
+        """
+        event_id, turn_id = payload.get('event_id'), payload.get('turn_id')
+        kind, text = payload.get('kind'), payload.get('text')
+        if (not isinstance(event_id, str) or not IDENTIFIER.fullmatch(event_id)
+                or not isinstance(turn_id, str) or not IDENTIFIER.fullmatch(turn_id)
+                or kind not in {'candidate', 'interviewer'} or not isinstance(text, str)
+                or not text.strip() or len(text) > self.settings['MAX_ANSWER_CHARACTERS']):
+            raise ConversationError('Invalid interview event.', 400)
+        event = {'event_id': event_id, 'turn_id': turn_id, 'kind': kind, 'text': text}
+        with self.journal.edit(identity) as state:
+            if state.get('livekit_generation') != generation:
+                raise ConversationError('This voice session has been replaced.', 409)
+            if state.get('livekit_expires_at'):
+                try:
+                    deadline = datetime.fromisoformat(state['livekit_expires_at'])
+                    expired = deadline.tzinfo is None or datetime.now(timezone.utc) >= deadline
+                except (TypeError, ValueError):
+                    expired = True
+                if expired:
+                    raise ConversationError('Interview time limit reached.', 410)
+            events = state.setdefault('livekit_events', [])
+            existing = next((item for item in events if item['event_id'] == event_id), None)
+            if existing:
+                if any(existing[key] != value for key, value in event.items()):
+                    raise ConversationError('Event identifier already belongs to another event.', 409)
+                return deepcopy(existing)
+            if state.get('end_requested') or state.get('status') in {'ended', 'completed'}:
+                raise ConversationError('This interview has ended.', 410)
+            if len(events) >= 1000:
+                raise ConversationError('Interview event limit reached.', 409)
+            event.update(sequence=len(events), created_at=time.time())
+            events.append(event)
+            return deepcopy(event)
+
+    @staticmethod
+    def reconcile_livekit_transcript(snapshot):
+        """Pair finalized agent/candidate messages without counting voice commands.
+
+        The agent is instructed to use approved main-question wording verbatim;
+        unmatched questions after a completed main turn are treated as follow-ups
+        of that main question.
+        """
+        plan = snapshot.get('interview_plan', {}).get('questions', [])
+        if not plan:
+            return [], set(), 0, None
+        answered_main, rows = set(), []
+        active_question = None
+        active_question_id = None
+        current_main = None
+        for event in snapshot.get('livekit_events', []):
+            if event.get('kind') == 'interviewer':
+                active_question = event.get('text', '')
+                active_question_id = event.get('event_id')
+                continue
+            if event.get('kind') != 'candidate' or not active_question:
+                continue
+            answer = (event.get('text') or '').strip()
+            normalized_answer = answer.casefold().replace("i'm", 'i am').replace('im done', 'i am done')
+            command = re.sub(r'[^a-z0-9 ]', '', normalized_answer).strip()
+            if command in {'repeat', 'repeat question', 'repeat the question', 'please repeat the question',
+                           'can you repeat', 'can you repeat the question', 'could you repeat',
+                           'could you repeat the question', 'i am done',
+                           'i am done speaking', 'done speaking'}:
+                continue
+            normalized = re.sub(r'[^a-z0-9 ]', '', active_question.casefold()).strip()
+            matched = next((index for index, item in enumerate(plan)
+                            if re.sub(r'[^a-z0-9 ]', '', str(item.get('question', '')).casefold()).strip()
+                            and re.sub(r'[^a-z0-9 ]', '', str(item.get('question', '')).casefold()).strip() in normalized), None)
+            if matched is not None and matched not in answered_main:
+                plan_index, kind = matched, str(plan[matched].get('type') or 'technical')
+                current_main = plan_index
+                answered_main.add(plan_index)
+                parent_index = None
+            elif current_main is not None and current_main in answered_main:
+                plan_index, kind, parent_index = current_main, 'follow_up', current_main
+            else:
+                plan_index = next((index for index in range(len(plan)) if index not in answered_main),
+                                  max(0, min(snapshot.get('current_question', 0), len(plan) - 1)))
+                kind, parent_index = str(plan[plan_index].get('type') or 'technical'), None
+                current_main = plan_index
+                answered_main.add(plan_index)
+            skill = (plan[plan_index].get('skill') or 'General Knowledge') if plan else 'General Knowledge'
+            rows.append({'question': active_question, 'answer': answer, 'skill': skill, 'type': kind,
+                         'plan_index': plan_index, 'parent_plan_index': parent_index,
+                         'question_event_id': active_question_id, 'answer_event_id': event.get('event_id'),
+                         'evaluation_context': snapshot.get('evaluation_context', {})})
+            active_question = None
+            active_question_id = None
+        pending_question = active_question
+        next_main = next((index for index in range(len(plan)) if index not in answered_main),
+                         max(0, len(plan) - 1))
+        return rows, answered_main, next_main, pending_question
+
+    def finalize_livekit(self, identity):
+        """Evaluate committed LiveKit turns and build a scorecard in background."""
+        request_id = None
+        with self.journal.edit(identity) as state:
+            if not state.get('agent_led'):
+                raise ConversationError('Agent-led interview mode is not active.')
+            if state.get('status') == 'completed':
+                return deepcopy(state)
+            if state.get('livekit_finalize_request') and state.get('status') == 'scoring':
+                if time.time() - state.get('updated_at', time.time()) <= self.settings['CONVERSATION_STALE_SECONDS']:
+                    return deepcopy(state)
+                state.update(status='error', paused=True,
+                             error='Scorecard processing was interrupted. Retry ending the interview.')
+            state.pop('livekit_finalize_request', None)
+            if not self.slots.acquire(blocking=False):
+                raise ConversationError('Interview service is busy. Retry shortly.', 503)
+            request_id = uuid4().hex
+            state.update(end_requested=True, early_ended=True, paused=True,
+                         status='scoring', livekit_finalize_request=request_id, error=None)
+            state.pop('finalization_error_stage', None)
+        try:
+            self.executor.submit(self._run_livekit_finalize, identity, request_id)
+        except Exception:
+            self.slots.release()
+            with self.journal.edit(identity) as state:
+                state.update(status='error', error='Scorecard processing could not start. Retry ending the interview.')
+        return self.get(identity)
+
+    def _run_livekit_finalize(self, identity, request_id):
+        finalize_started = time.perf_counter()
+        stage = 'load_transcript'
+        try:
+            with self.journal.edit(identity) as state:
+                if state.get('livekit_finalize_request') != request_id:
+                    return
+                snapshot = deepcopy(state)
+            pairs, answered_main, _next_main, _pending = self.reconcile_livekit_transcript(snapshot)
+            plan_questions = snapshot.get('interview_plan', {}).get('questions', [])
+            evaluations = snapshot.get('livekit_evaluations', {})
+            cached_keys = {
+                hashlib.sha256(f"{row['question_event_id']}:{row['answer_event_id']}".encode('utf-8')).hexdigest()
+                for row in pairs
+            }
+            cached_count = sum(key in evaluations for key in cached_keys)
+
+            def evaluate_pair(index, row):
+                question = {'question': row['question'], 'skill': row['skill'], 'type': row['type'],
+                            'evaluation_context': row['evaluation_context']}
+                cache_key = hashlib.sha256(
+                    f"{row['question_event_id']}:{row['answer_event_id']}".encode('utf-8')).hexdigest()
+                evaluation = evaluations.get(cache_key)
+                if evaluation is None:
+                    evaluation = (mock_evaluate(question, row['answer']) if snapshot.get('mock')
+                                  else self.evaluator(question, row['answer']))
+                    with self.journal.edit(identity) as state:
+                        if state.get('livekit_finalize_request') != request_id:
+                            return None
+                        state.setdefault('livekit_evaluations', {})[cache_key] = deepcopy(evaluation)
+                    evaluations[cache_key] = deepcopy(evaluation)
+                return evaluation
+
+            evaluation_started = time.perf_counter()
+            concurrency = min(int(self.settings['LIVEKIT_FINALIZE_EVALUATION_CONCURRENCY']), max(1, len(pairs)))
+            if pairs:
+                # Finalization used to call Gemini once per answer in series.
+                # Evaluate independent transcript pairs concurrently, but
+                # persist each result immediately so a retry only repeats the
+                # specific evaluations that failed.
+                stage = 'evaluate_answer'
+                with ThreadPoolExecutor(max_workers=concurrency,
+                                        thread_name_prefix='livekit-evaluation') as pool:
+                    futures = [pool.submit(evaluate_pair, index, row) for index, row in enumerate(pairs)]
+                    pair_evaluations = [future.result() for future in futures]
+            else:
+                pair_evaluations = []
+            if any(result is None for result in pair_evaluations):
+                return
+            evaluation_ms = round((time.perf_counter() - evaluation_started) * 1000, 2)
+            logger.info('voice_timing stage=livekit_evaluations interview=%s count=%d cached=%d concurrency=%d ms=%.2f',
+                        identity, len(pairs), cached_count, concurrency, evaluation_ms)
+            history = [
+                {key: row[key] for key in
+                 ('question', 'answer', 'skill', 'type', 'plan_index', 'parent_plan_index')} |
+                {'evaluation': evaluation}
+                for row, evaluation in zip(pairs, pair_evaluations)
+            ]
+            evaluated = [item for item in history if item.get('evaluation')]
+            evaluated_main = {item['plan_index'] for item in history
+                              if item.get('evaluation') and item.get('type') != 'follow_up'}
+            stage = 'generate_scorecard'
+            started_at = time.perf_counter()
+            scorecard = ({'insufficient_evidence': True} if not evaluated else
+                         mock_scorecard(snapshot.get('candidate_name', 'Candidate'), evaluated)
+                         if snapshot.get('mock') else self.scorecard(snapshot.get('candidate_name'), evaluated))
+            scorecard_ms = round((time.perf_counter() - started_at) * 1000, 2)
+            if not isinstance(scorecard, dict) or (
+                    not scorecard.get('insufficient_evidence') and
+                    not isinstance(scorecard.get('overall_score'), (int, float))):
+                raise ValueError('Invalid scorecard response')
+            stage = 'save_scorecard'
+            with self.journal.edit(identity) as state:
+                if state.get('livekit_finalize_request') != request_id:
+                    return
+                state['interview_history'] = history
+                state['current_question'] = min(len(plan_questions), len(evaluated_main))
+                state.setdefault('timings', {})['scorecard_ms'] = scorecard_ms
+                state.update(status='completed', final_scorecard=scorecard, draft='', error=None,
+                             early_ended=len(evaluated_main) < len(plan_questions))
+            logger.info('voice_timing stage=livekit_scorecard interview=%s ms=%.2f mock=%s',
+                        identity, scorecard_ms, snapshot.get('mock'))
+            logger.info('voice_timing stage=livekit_finalization interview=%s ms=%.2f evaluated=%d',
+                        identity, round((time.perf_counter() - finalize_started) * 1000, 2), len(evaluated))
+        except Exception as error:
+            logger.error('LiveKit finalization failed: interview=%s stage=%s error_type=%s',
+                         identity, stage, type(error).__name__)
+            with self.journal.edit(identity) as state:
+                if state.get('livekit_finalize_request') == request_id:
+                    state.update(status='error', paused=True,
+                                 error='Final interview processing failed. Retry finalization.',
+                                 finalization_error_stage=stage)
+        finally:
+            self.slots.release()
+
     def _recover_stale(self, state):
+        if (state.get('status') == 'scoring' and state.get('livekit_finalize_request')
+                and time.time() - state.get('updated_at', time.time()) > self.settings['CONVERSATION_STALE_SECONDS']):
+            state.update(status='error', paused=True,
+                         error='Scorecard processing was interrupted. Retry ending the interview.')
         active = state.get("active_request")
         if state.get("status") in {"evaluating", "scoring"} and active:
             job = state["jobs"][active]
@@ -343,6 +573,7 @@ def public_state(state):
             "mock": state["mock"], "version": state.get("version", 0),
             "end_requested": state.get("end_requested", False),
             "early_ended": state.get("early_ended", False),
+            "finalization_error_stage": state.get("finalization_error_stage"),
             "control_action": state.get("control_action"),
             "scorecard_url": "/final-scorecard" if state["status"] == "completed" else None}
 
