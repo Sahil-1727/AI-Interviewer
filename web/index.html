@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#101411" />
+    <title>AI Interviewer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="Fieldnote home">
+          <span class="brand-mark"><span></span><span></span><span></span></span>
+          <span>fieldnote<span class="brand-dot">.</span></span>
+        </a>
+        <div class="top-meta"><span class="live-dot"></span><span>PRIVATE SESSION</span><span class="meta-divider">/</span><span id="clock">LOCAL TIME</span></div>
+        <button class="help-button" id="help-button" aria-label="About this interview">i</button>
+      </header>
+
+      <section class="workspace">
+        <div class="intro">
+          <div class="eyebrow"><span>01</span><span class="eyebrow-rule"></span><span>VOICE INTERVIEW</span></div>
+          <h1>Make room<br />for your <em>thinking.</em></h1>
+          <p class="intro-copy">A thoughtful conversation about how you work, what you know, and what you’re curious about.</p>
+          <div class="role-card">
+            <div class="role-icon">✳</div>
+            <div><span class="card-label">TODAY’S CONVERSATION</span><strong id="role-title">Technical interview</strong><span class="role-subtitle" id="role-level">Personalized to your experience</span></div>
+            <span class="card-arrow">↗</span>
+          </div>
+          <div class="note"><span class="note-icon">◷</span><span>About 15 minutes <i>·</i> Find a quiet place to begin</span></div>
+        </div>
+
+        <div class="interview-card">
+          <div class="card-topline"><span class="section-label">YOUR INTERVIEW</span><span class="secure"><span>⌑</span> ENCRYPTED ROOM</span></div>
+          <div class="visualizer" id="visualizer" aria-label="Microphone visualization">
+            <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+            <div class="sound-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="mic-halo"><div class="mic-core"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"></rect><path d="M6.5 11.5a5.5 5.5 0 0 0 11 0M12 17v4m-3 0h6"></path></svg></div></div>
+            <span class="visualizer-caption" id="visualizer-caption">YOUR VOICE, WHEN YOU’RE READY</span>
+          </div>
+          <div class="status-row"><span class="status-light" id="status-light"></span><span id="status-text">Ready when you are</span><span class="status-time" id="elapsed">00:00</span></div>
+          <div class="transcript" id="transcript" aria-live="polite"><span class="transcript-placeholder">Your conversation will appear here as you speak.</span></div>
+          <div class="controls">
+            <button class="secondary-button" id="mute-button" disabled><span class="small-mic">◉</span><span>Mute mic</span></button>
+            <button class="start-button" id="start-button"><span class="button-icon">↗</span><span>Begin interview</span><span class="button-shortcut">↵</span></button>
+          </div>
+          <div class="card-footnote"><span>By continuing, your audio is used only to conduct this interview.</span><span class="footnote-mark">FIELDNOTE / 01</span></div>
+        </div>
+      </section>
+
+      <footer class="footer"><span>TAKE A BREATH. THERE’S NO RUSH.</span><span>BUILT FOR BETTER CONVERSATIONS <b>✳</b></span></footer>
+    </main>
+    <div class="toast" id="toast" role="status"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

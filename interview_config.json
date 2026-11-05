@@ -1,0 +1,14 @@
+
+{
+  "role": "Python Developer Intern",
+  "experience_level": "Fresher",
+  "required_skills": [
+    "Python",
+    "OOP",
+    "Flask",
+    "SQL",
+    "REST APIs"
+  ],
+  "job_description": "We are looking for a Python Developer Intern with knowledge of backend development, databases, OOP, and API integration.",
+  "total_questions": 5
+}
