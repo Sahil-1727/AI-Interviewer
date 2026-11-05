@@ -57,7 +57,7 @@
             </div>
             <div class="field">
                 <label for="job-description">Job description <span>Required</span></label>
-                <textarea id="job-description" name="job_description" rows="5" placeholder="Paste the responsibilities, skills, and requirements for your target role…" aria-describedby="job-help" required></textarea>
+                <textarea id="job-description" name="job_description" rows="5" placeholder="Paste the responsibilities, skills, and requirements for your target role…" aria-describedby="job-help" required>{{ job_description or '' }}</textarea>
                 <p id="job-help" class="field-help">We’ll tailor your questions to this role.</p>
             </div>
             <div class="field">

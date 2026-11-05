@@ -10,6 +10,7 @@ from cachelib.file import FileSystemCache
 from flask import g, jsonify, send_file
 from flask_session import Session
 from sqlalchemy.exc import SQLAlchemyError
+from google.genai.errors import APIError as GeminiAPIError
 from app.services.stt import transcribe_audio
 from app.services.tts import synthesize_speech
 
@@ -297,11 +298,25 @@ def home():
         if not isinstance(resume, str) or not resume.strip() or len(resume) > 100000:
             return 'Provide a readable resume with at most 100,000 characters of text.', 400
 
-        interview_plan = generate_interview_plan(
-            candidate_name,
-            job_description,
-            resume
-        )
+        try:
+            interview_plan = generate_interview_plan(
+                candidate_name,
+                job_description,
+                resume
+            )
+        except GeminiAPIError as error:
+            provider_status = getattr(error, 'code', None)
+            app.logger.warning('Interview plan generation failed: error_type=%s provider_status=%s',
+                               type(error).__name__, provider_status or 'unknown')
+            temporary = provider_status == 429 or (isinstance(provider_status, int) and provider_status >= 500)
+            message = ('Gemini is temporarily busy. Your interview was not created. Please try again shortly; '
+                       'your name and job description are kept, but you will need to select your resume again.'
+                       if temporary else
+                       'The question service could not create your interview. Please try again later or contact the administrator.')
+            used, limit = daily_usage(g.current_account.id)
+            return render_template('index.html', error=message, candidate_name=candidate_name,
+                                   job_description=job_description, interviews_used=used,
+                                   daily_limit=limit), (503 if temporary else 502)
 
         account_id = g.current_account.id
         csrf = session.get('_csrf_token')
