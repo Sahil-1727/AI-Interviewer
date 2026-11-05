@@ -62,7 +62,8 @@
             <p id="readiness-status" role="status" aria-live="polite">Check your microphone to begin. The camera check is optional.</p>
             <label class="instruction-acknowledgment"><input type="checkbox" id="instructions-acknowledged"> I have read and understood the interview instructions.</label>
             <div class="conversation-start">
-                <button type="button" id="begin-instructions" class="button button-primary" disabled>Start Interview {{ icon('arrow') }}</button>
+                <button type="button" id="begin-instructions" class="button button-primary" {% if livekit_primary %}hidden{% endif %} disabled>Start Interview {{ icon('arrow') }}</button>
+                {% if livekit_enabled %}<button type="button" id="begin-livekit" class="button button-secondary" disabled>Start LiveKit interview (experimental)</button>{% endif %}
                 <button type="button" id="instructions-manual" class="button button-text">Use manual mode</button>
             </div>
         </div>
@@ -122,7 +123,7 @@
             <section class="conversation-controls" aria-label="Interview controls">
                 {% if voice_mock_mode %}<p class="tiny-label">PRACTICE SANDBOX · SIMULATED INTERVIEW DECISIONS</p>{% endif %}
                 <div class="conversation-start">
-                    <button type="button" id="start-interview" class="button button-primary">Start Interview {{ icon('arrow') }}</button>
+                    <button type="button" id="start-interview" class="button button-primary" {% if livekit_primary %}hidden{% endif %}>Start Interview {{ icon('arrow') }}</button>
                     <button type="button" id="manual-mode" class="button button-text">Use manual mode</button>
                 </div>
                 <p id="voice-status" role="status" aria-live="polite">Start once, then answer naturally.</p>
@@ -231,4 +232,8 @@
 <script src="{{ url_for('static', filename='js/interview-instructions.js') }}"></script>
 <script src="{{ url_for('static', filename='js/conversation.js') }}"></script>
 <script src="{{ url_for('static', filename='js/camera.js') }}"></script>
+{% if livekit_enabled %}
+<script src="{{ url_for('static', filename='vendor/livekit/livekit-client.umd.js') }}"></script>
+<script src="{{ url_for('static', filename='js/livekit-interview.js') }}"></script>
+{% endif %}
 {% endblock %}

@@ -1,0 +1,7 @@
+# Worker image requires only its entrypoint and dependencies.
+*
+!requirements-livekit-agent.txt
+!livekit_agent/
+!livekit_agent/**
+livekit_agent/**/__pycache__/
+*.pyc

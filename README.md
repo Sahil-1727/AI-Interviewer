@@ -3,16 +3,17 @@
 An AI interview practice application built with Flask. It uses a candidate's job
 description and PDF resume to create questions, conduct an interview, and produce
 an evidence-based scorecard. The `feature/free-deployment` branch includes
-conversational voice interviews, Deepgram, and PostgreSQL support.
+conversational voice interviews and PostgreSQL support. This
+`feature/livekit-deployment` branch adds an experimental restricted LiveKit
+deployment architecture; it has not passed a live end-to-end test.
 
 ## Features
 
 - Generate a plan of up to 10 main questions with Google Gemini, prioritizing the
   job description and keeping resume questions high-level. Adaptive follow-ups
   can add questions during the interview.
-- Practice in manual mode with typed answers or use the hands-free conversational
-  voice mode. Manual audio recording uses faster-whisper; typed answers work with
-  either speech provider.
+- Practice in manual mode with typed answers or use conversational voice.
+  Local legacy manual audio recording uses faster-whisper; production voice uses LiveKit.
 - Listen to questions, repeat them, pause and resume, say “I'm done,” or use
   **Done Speaking**. Commands depend on speech recognition and may not always be
   recognized.
@@ -24,18 +25,16 @@ conversational voice interviews, Deepgram, and PostgreSQL support.
 - Store interviews and sessions in PostgreSQL when configured. The authenticated
   session can export its interview transcript as JSON.
 
-The interview is turn-based rather than a full-duplex conversation. In automatic
-voice mode, the default is 10 seconds to begin speaking and 5 seconds of silence
-after recognized speech to finish an answer. Pause when you need more time.
-These thresholds are configurable; see `.env.example`. The microphone is closed
-while the AI question is playing.
+LiveKit uses its turn detector for conversational voice; its timing and
+interruption behavior still require a real-audio test. The legacy automatic voice
+mode uses configurable 10-second initial and 5-second post-speech timeouts.
 
 ## Technology
 
 - **Application:** Python, Flask, Flask-Sock, Gunicorn, HTML, CSS, JavaScript.
 - **Interview planning and evaluation:** Google Gemini.
-- **Speech recognition:** local faster-whisper, or Deepgram Nova-3 streaming.
-- **Question audio:** Edge TTS, or Deepgram Aura-2.
+- **LiveKit voice:** AssemblyAI Universal-3.6 Pro, Gemma 4 31B, and Fish Audio S2.1 Pro via LiveKit Inference.
+- **Local legacy speech:** faster-whisper or Deepgram STT; Edge TTS or Deepgram TTS.
 - **Persistence:** PostgreSQL through SQLAlchemy and Flask-Migrate; local
   filesystem storage is available when no database is configured.
 - **Resume parsing:** `pypdf` for PDFs containing extractable text. Scanned PDFs
@@ -122,7 +121,7 @@ old file journals automatically.
 
 The lightweight `requirements-production.txt` omits faster-whisper, PyAV,
 NumPy, and Edge TTS. `requirements.txt` retains those packages for local use.
-For a Render deployment using Deepgram and PostgreSQL:
+For the experimental LiveKit branch with PostgreSQL:
 
 ```text
 Build: pip install -r requirements-production.txt
@@ -130,10 +129,11 @@ Start: gunicorn -c gunicorn.conf.py run:app
 ```
 
 Set `APP_ENV=production`, `DATABASE_URL`, `SECRET_KEY`, `GEMINI_API_KEY`,
-`DEEPGRAM_API_KEY`, `STT_PROVIDER=deepgram`, `TTS_PROVIDER=deepgram`, and
+`LIVEKIT_ENABLED=1`, `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`,
+`LIVEKIT_AGENT_SHARED_SECRET`, `RESTRICTED_ACCOUNTS_JSON`, and
 `SESSION_COOKIE_SECURE=1` in the host's environment. Render supplies `PORT`.
 The default Gunicorn configuration uses one threaded worker. See the
-[Render guide](docs/render-free.md) for migration order, limits, and deployment
+[LiveKit guide](docs/livekit-integration.md) for migration order, limits, and deployment
 checks. A real deployment, live provider behavior, and peak memory under load must
 be validated for the intended environment; a local mock test alone does not prove
 that a 512 MB instance can support a particular workload.
@@ -181,7 +181,7 @@ migrations/                     Flask-Migrate database revisions
 tests/                          Mocked and PostgreSQL/browser integration tests
 docs/                           Voice, PostgreSQL, and Render guides
 requirements.txt                Full local dependencies
-requirements-production.txt     Lightweight Deepgram deployment dependencies
+requirements-production.txt     Lightweight Flask deployment dependencies
 ```
 
 ## Current limitations and planned work
@@ -193,13 +193,11 @@ requirements-production.txt     Lightweight Deepgram deployment dependencies
   recovery need testing with real devices, providers, and the deployment network.
 - Background processing is not a durable job queue. Interrupted provider calls
   require explicit recovery, and retries can result in another provider request.
-- **Planned: evaluate LiveKit** for a future real-time voice architecture,
-  including streaming audio and interruption handling. LiveKit is not currently
-  integrated; the architecture, deployment, costs, and migration plan are still
-  to be decided.
+- LiveKit integration, restricted accounts, and usage limits are experimental;
+  live audio, hosted deployment, and independent room cleanup remain unverified.
 - Further work includes candidate authentication and session recovery, robust
   usage limits, broader browser/device testing, and production monitoring.
 
 Some older historical material in [the voice guide](docs/realtime-voice.md)
 describes earlier branch behavior; use the provider and deployment sections above
-for the current `feature/free-deployment` configuration.
+for the current `feature/livekit-deployment` configuration.

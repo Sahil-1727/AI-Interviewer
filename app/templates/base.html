@@ -21,6 +21,9 @@
             <span class="{% block report_step %}{% endblock %}"><b>03</b> Insights</span>
         </nav>
         <span class="header-note">A little practice. A lot of possibility.</span>
+        {% if session.get('account_name') %}
+        <form method="post" action="{{ url_for('access.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="button button-text">Sign out</button></form>
+        {% endif %}
     </header>
     {% block content %}{% endblock %}
     <footer class="site-footer"><span>AI Interviewer <span class="footer-dot">/</span> Practice with purpose.</span><span>Personalized questions. Thoughtful feedback.</span></footer>

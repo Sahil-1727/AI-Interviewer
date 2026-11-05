@@ -10,6 +10,7 @@ from cachelib.file import FileSystemCache
 from flask import jsonify, send_file
 from flask_session import Session
 from sqlalchemy.exc import SQLAlchemyError
+from google.genai import errors as gemini_errors
 from app.services.stt import transcribe_audio
 from app.services.tts import synthesize_speech
 
@@ -31,12 +32,16 @@ app = Flask(
     template_folder="app/templates",
     static_folder="app/static"
 )
+app.jinja_env.globals['livekit_enabled'] = os.getenv('LIVEKIT_ENABLED', '0') == '1'
+app.jinja_env.globals['livekit_primary'] = os.getenv('APP_ENV') == 'production'
 app.config["MAX_CONTENT_LENGTH"] = int(os.getenv('MAX_REQUEST_BYTES', str(12 * 1024 * 1024)))
 app.config['SOCK_SERVER_OPTIONS'] = {'max_message_size': 256 * 1024, 'ping_interval': 25}
 if app.config['MAX_CONTENT_LENGTH'] <= 0:
     raise RuntimeError('MAX_REQUEST_BYTES must be positive.')
 
 if os.getenv('APP_ENV') == 'production':
+    if os.getenv('LIVEKIT_ENABLED') != '1':
+        raise RuntimeError('Production requires LIVEKIT_ENABLED=1 on this branch.')
     if not os.getenv('DATABASE_URL') or os.getenv('SESSION_COOKIE_SECURE') != '1':
         raise RuntimeError('Production requires DATABASE_URL and SESSION_COOKIE_SECURE=1.')
     if len(os.getenv('SECRET_KEY', '')) < 32:
@@ -99,12 +104,16 @@ sock.init_app(app)
 
 @app.before_request
 def check_session_storage():
+    if os.getenv('APP_ENV') == 'production' and request.path in {'/api/transcribe', '/api/synthesize', '/api/voice/stream'}:
+        return jsonify(error='This voice transport is unavailable.'), 404
     if getattr(session, '_storage_unavailable', False):
         return jsonify(error='Service temporarily unavailable.'), 503
 
 
 from app.security import init_security
 init_security(app)
+from app.auth import init_auth
+init_auth(app)
 
 
 @app.get('/health/ready')
@@ -133,6 +142,14 @@ def cleanup_expired_sessions():
     click.echo(f'Removed {removed} expired browser sessions.')
 
 
+@app.cli.command('cleanup-expired-interviews')
+def cleanup_expired_interviews():
+    """Close expired usage records without deleting interview data."""
+    import click
+    from app.services.interview_quota import cleanup_expired
+    click.echo(f'Closed {cleanup_expired()} expired interview usage records.')
+
+
 @app.get('/api/conversation/transcript')
 def voice_transcript():
     identity = session.get('voice_interview_id') or session.get('manual_interview_id')
@@ -142,6 +159,7 @@ def voice_transcript():
         return jsonify(error='Interview not found.'), 404
     from app.services.interview_repository import InterviewNotFound, export_transcript
     try:
+        journal.authorize(identity, token, session.get('account_name'))
         with journal.sessions.begin() as db_session:
             messages = export_transcript(db_session, identity, token)
     except InterviewNotFound:
@@ -169,7 +187,7 @@ def sync_manual_interview():
     if not identity:
         return None
     service = app.extensions['conversation']
-    service.journal.authorize(identity, session.get('manual_interview_token'))
+    service.journal.authorize(identity, session.get('manual_interview_token'), session.get('account_name'))
     state = service.get(identity)
     copy_to_session(state, session)
     return state
@@ -244,13 +262,26 @@ def home():
         if not isinstance(resume, str) or not resume.strip() or len(resume) > 100000:
             return 'Provide a readable resume with at most 100,000 characters of text.', 400
 
-        interview_plan = generate_interview_plan(
-            candidate_name,
-            job_description,
-            resume
-        )
+        try:
+            interview_plan = generate_interview_plan(
+                candidate_name,
+                job_description,
+                resume
+            )
+        except gemini_errors.ServerError as error:
+            if error.code != 504:
+                raise
+            app.logger.warning('Interview plan generation timed out at Gemini.')
+            return render_template('index.html', candidate_name=candidate_name,
+                                   job_description=job_description,
+                                   setup_error='Gemini took too long to create the interview. Please select your resume again and retry.'), 503
 
+        account_name = session.get('account_name')
+        account_version = session.get('account_version')
         session.clear()
+        if account_name:
+            session['account_name'] = account_name
+            session['account_version'] = account_version
         session["candidate_name"] = candidate_name
         session["evaluation_context"] = {"job_description": job_description, "resume": resume}
         session["interview_plan"] = interview_plan

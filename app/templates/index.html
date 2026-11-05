@@ -47,15 +47,16 @@
         </div>
         <h2 id="form-title">Make it personal.</h2>
         <p class="muted">A little context makes for a better conversation.</p>
+        {% if setup_error %}<p class="field-error" role="alert">{{ setup_error }}</p>{% endif %}
         <form method="POST" action="{{ url_for('home') }}" enctype="multipart/form-data" id="setup-form" data-submit-form>
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="field">
                 <label for="candidate-name">Candidate name <span>Required</span></label>
-                <input type="text" id="candidate-name" name="candidate_name" placeholder="Your full name" autocomplete="name" required>
+                <input type="text" id="candidate-name" name="candidate_name" value="{{ candidate_name or '' }}" placeholder="Your full name" autocomplete="name" required>
             </div>
             <div class="field">
                 <label for="job-description">Job description <span>Required</span></label>
-                <textarea id="job-description" name="job_description" rows="5" placeholder="Paste the responsibilities, skills, and requirements for your target role…" aria-describedby="job-help" required></textarea>
+                <textarea id="job-description" name="job_description" rows="5" placeholder="Paste the responsibilities, skills, and requirements for your target role…" aria-describedby="job-help" required>{{ job_description or '' }}</textarea>
                 <p id="job-help" class="field-help">We’ll tailor your questions to this role.</p>
             </div>
             <div class="field">

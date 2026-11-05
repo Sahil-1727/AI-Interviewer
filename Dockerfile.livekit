@@ -1,0 +1,6 @@
+FROM python:3.13-slim
+WORKDIR /app
+COPY requirements-livekit-agent.txt ./
+RUN pip install --no-cache-dir -r requirements-livekit-agent.txt
+COPY livekit_agent/ ./livekit_agent/
+CMD ["python", "livekit_agent/interview_agent.py", "start"]

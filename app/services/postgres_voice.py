@@ -25,6 +25,8 @@ class PostgresVoiceJournal:
                                                context.get("job_description") or "", context.get("resume"),
                                                flask_session["interview_plan"])
             state = {field: deepcopy(flask_session[field]) for field in FIELDS if field in flask_session}
+            if flask_session.get('account_name'):
+                state['owner_account'] = flask_session['account_name']
             state.update(id=identity, turn_id=uuid4().hex, status="ready", paused=False, jobs={}, mock=bool(mock),
                          draft="", error=None, timings={}, created_at=time.time(), updated_at=time.time(), version=1)
             if question_for(state) is None:
@@ -33,11 +35,15 @@ class PostgresVoiceJournal:
             self._project(db_session, identity, state)
         return identity, token
 
-    def authorize(self, identity, token):
+    def authorize(self, identity, token, account_name=None):
         from app.services.conversation import ConversationError
         try:
             with self.sessions.begin() as session:
                 authorized_interview(session, identity, token)
+                if account_name is not None:
+                    snapshot = session.get(VoiceSnapshot, identity)
+                    if snapshot is None or snapshot.state.get('owner_account') != account_name:
+                        raise InterviewNotFound('Interview not found.')
         except InterviewNotFound as error:
             raise ConversationError("Interview not found.", 404) from error
 

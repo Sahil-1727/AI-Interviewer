@@ -135,3 +135,15 @@ class RequestLimit(db.Model):
     category: Mapped[str] = mapped_column(String(32), primary_key=True)
     bucket: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True)
     count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class InterviewUsage(db.Model):
+    __tablename__ = 'interview_usage'
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=identifier)
+    interview_id: Mapped[str] = mapped_column(ForeignKey('interviews.id', ondelete='CASCADE'), nullable=False, index=True)
+    account_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (Index('uq_interview_usage_active_account', 'account_name', unique=True,
+                            postgresql_where=ended_at.is_(None)),)

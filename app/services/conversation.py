@@ -9,6 +9,7 @@ This is a temporary single-host mechanism, not a distributed job queue/database.
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from copy import deepcopy
+from datetime import datetime, timezone
 import fcntl
 import hashlib
 import json
@@ -106,7 +107,7 @@ class ConversationService:
             return self.get(identity)
         if hasattr(self.journal, "initialize") and session.get("manual_interview_id"):
             identity = session["manual_interview_id"]
-            self.journal.authorize(identity, session.get("manual_interview_token"))
+            self.journal.authorize(identity, session.get("manual_interview_token"), session.get('account_name'))
             with self.journal.edit(identity) as state:
                 if state.get("status") == "manual":
                     state.update(status="ready", paused=False)
@@ -132,7 +133,7 @@ class ConversationService:
 
     def authorize(self, identity, session):
         if hasattr(self.journal, "authorize"):
-            self.journal.authorize(identity, session.get("voice_interview_token"))
+            self.journal.authorize(identity, session.get("voice_interview_token"), session.get('account_name'))
 
     def _recover_stale(self, state):
         active = state.get("active_request")
@@ -171,7 +172,7 @@ class ConversationService:
             self.slots.release()
             self._error(identity, request_id, "Scorecard processing could not start. Retry processing.")
 
-    def accept(self, identity, payload, retry=False):
+    def accept(self, identity, payload, retry=False, livekit_generation=None):
         turn_id, request_id, answer = payload.get("turn_id"), payload.get("request_id"), payload.get("answer")
         unanswered = payload.get("unanswered") is True and not retry
         if not isinstance(request_id, str) or not IDENTIFIER.fullmatch(request_id):
@@ -182,6 +183,16 @@ class ConversationService:
         digest = hashlib.sha256(json.dumps([turn_id, answer, unanswered]).encode()).hexdigest()
         with self.journal.edit(identity) as state:
             self._recover_stale(state)
+            if livekit_generation is not None and state.get('livekit_generation') != livekit_generation:
+                raise ConversationError('This voice session has been replaced.', 409)
+            if livekit_generation is not None and state.get('livekit_expires_at'):
+                try:
+                    deadline = datetime.fromisoformat(state['livekit_expires_at'])
+                    expired = deadline.tzinfo is None or datetime.now(timezone.utc) >= deadline
+                except (TypeError, ValueError):
+                    expired = True
+                if expired:
+                    raise ConversationError('Interview time limit reached.', 410)
             if state.get("end_requested") and not (retry and state.get("retry_stage") == "scorecard"):
                 raise ConversationError("This interview has ended.")
             prior = state["jobs"].get(request_id)
@@ -226,6 +237,7 @@ class ConversationService:
                 state.update(status="error", paused=True, error=message, retry_stage=job["stage"])
 
     def _run(self, identity, request_id):
+        processing_stage = 'claim'
         try:
             with self.journal.edit(identity) as state:
                 job = state["jobs"][request_id]
@@ -235,10 +247,12 @@ class ConversationService:
                 work = deepcopy(state)
             job = work["jobs"][request_id]
             if job["stage"] == "evaluation":
+                processing_stage = 'evaluation'
                 start = time.perf_counter()
                 evaluator = mock_evaluate if work["mock"] else self.evaluator
                 next_question = advance(work, job["answer"], evaluator, unanswered=job.get("unanswered", False))
                 elapsed = (time.perf_counter() - start) * 1000
+                processing_stage = 'save_evaluation'
                 with self.journal.edit(identity) as state:
                     if state.get("active_request") != request_id or state["status"] != "evaluating":
                         return
@@ -257,6 +271,7 @@ class ConversationService:
                     state.update(status="scoring", retry_stage="scorecard")
                     state["jobs"][request_id].update(stage="scorecard", updated_at=time.time())
                     work = deepcopy(state)
+            processing_stage = 'scorecard'
             start = time.perf_counter()
             evaluated = [item for item in work["interview_history"] if item.get("evaluation")]
             scorecard = ({"insufficient_evidence": True} if not evaluated else
@@ -264,6 +279,7 @@ class ConversationService:
             if not isinstance(scorecard, dict) or (not scorecard.get("insufficient_evidence") and not isinstance(scorecard.get("overall_score"), (int, float))):
                 raise ValueError("Invalid scorecard response")
             elapsed = (time.perf_counter() - start) * 1000
+            processing_stage = 'save_scorecard'
             with self.journal.edit(identity) as state:
                 if state.get("active_request") != request_id or state["status"] != "scoring":
                     return
@@ -272,8 +288,11 @@ class ConversationService:
                 state["jobs"][request_id].update(status="done", updated_at=time.time())
                 state.pop("retry_stage", None)
             logger.info("voice_timing stage=scorecard interview=%s ms=%.2f mock=%s", identity, elapsed, work["mock"])
-        except Exception:
-            logger.error("Conversation processing failed: interview=%s request=%s", identity, request_id)
+        except Exception as error:
+            # Provider errors can include credentials or candidate content. Log
+            # only the failure stage and exception class, never the message.
+            logger.error("Conversation processing failed: interview=%s request=%s stage=%s error_type=%s",
+                         identity, request_id, processing_stage, type(error).__name__)
             self._error(identity, request_id, "Processing failed or timed out. Your answer is saved. Retry processing or switch to manual mode.")
         finally:
             self.slots.release()

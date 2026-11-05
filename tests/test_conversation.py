@@ -71,6 +71,16 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(result['status'], 'ready')
         self.assertEqual(edit.call_count, 1)
 
+    def test_livekit_answer_cannot_be_claimed_after_deadline(self):
+        state = self.start()
+        with self.service.journal.edit(state['interview_id']) as data:
+            data['livekit_generation'] = 'generation'
+            data['livekit_expires_at'] = '2000-01-01T00:00:00+00:00'
+        with self.assertRaises(ConversationError) as error:
+            self.service.accept(state['interview_id'], self.payload(state), livekit_generation='generation')
+        self.assertEqual(error.exception.status, 410)
+        self.evaluate.assert_not_called()
+
     def test_unanswered_is_idempotent_and_excluded_from_evaluation_and_scorecard(self):
         state = self.start()
         payload = dict(self.payload(state, ''), unanswered=True)
@@ -314,9 +324,12 @@ class ConversationTests(unittest.TestCase):
     def test_early_scorecard_error_retries_without_reevaluating(self):
         self.seed(self.client, count=3, follow_up=False)
         state = self.send(self.start())
-        self.scorecard.side_effect = TimeoutError('mock scorecard timeout')
-        self.client.post('/api/conversation/control', json={'action': 'end'})
-        failed = self.wait(state['interview_id'])
+        self.scorecard.side_effect = TimeoutError('sensitive provider details')
+        with self.assertLogs('app.services.conversation', level='ERROR') as captured:
+            self.client.post('/api/conversation/control', json={'action': 'end'})
+            failed = self.wait(state['interview_id'])
+        self.assertIn('stage=scorecard error_type=TimeoutError', captured.output[0])
+        self.assertNotIn('sensitive provider details', captured.output[0])
         self.assertEqual(failed['status'], 'error')
         self.assertEqual(failed['retry_stage'], 'scorecard')
         self.assertEqual(self.evaluate.call_count, 1)
