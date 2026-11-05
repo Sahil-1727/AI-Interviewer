@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="{{ url_for('static', filename='js/ui.js') }}" defer></script>
 </head>
-<body class="{% block body_class %}{% endblock %}">
+<body class="{% block body_class %}{% endblock %}" data-livekit-primary="{{ '1' if livekit_primary else '0' }}" data-has-livekit-session="{{ '1' if session.get('voice_interview_id') else '0' }}">
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
         <a class="brand" href="{{ url_for('home') }}" aria-label="AI Interviewer home"><span class="brand-mark" aria-hidden="true">i<span>·</span></span> AI Interviewer</a>
@@ -20,7 +20,17 @@
             <span class="{% block interview_step %}{% endblock %}"><b>02</b> Interview</span><span class="journey-line" aria-hidden="true"></span>
             <span class="{% block report_step %}{% endblock %}"><b>03</b> Insights</span>
         </nav>
-        <span class="header-note">A little practice. A lot of possibility.</span>
+        <div class="header-actions">
+            {% if current_account %}
+            <span class="header-note">{{ current_account.display_name }}</span>
+            <form method="POST" action="{{ url_for('accounts.logout') }}" class="header-logout">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="button button-text">Sign out</button>
+            </form>
+            {% else %}
+            <span class="header-note">A little practice. A lot of possibility.</span>
+            {% endif %}
+        </div>
     </header>
     {% block content %}{% endblock %}
     <footer class="site-footer"><span>AI Interviewer <span class="footer-dot">/</span> Practice with purpose.</span><span>Personalized questions. Thoughtful feedback.</span></footer>

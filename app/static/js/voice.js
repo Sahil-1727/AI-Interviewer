@@ -71,6 +71,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function stopAudio() {
         if (settleTimer !== null) clearTimeout(settleTimer);
         settleTimer = null;
+        $("interview-question").classList.remove("question-awaiting-audio");
         if (playback) {
             playback.controller.abort();
             clearTimeout(playback.timeout);
@@ -340,6 +341,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const baseline = append ? answer.value.trim() : '';
         const current = new window.DeepgramCapture({turnId: deepTurnId, config,
             started: playbackEndedAt || performance.now(),
+            onTiming: (stage, ms) => { if (deepCapture === current) emit('voice:timing', {stage, ms}); },
             onState: (next, message) => { if (deepCapture === current) state(next, message); },
             onTranscript: (text, interim) => {
                 if (deepCapture !== current || deepTurnId !== captureTurnId) return;
@@ -452,6 +454,7 @@ document.addEventListener("DOMContentLoaded", () => {
         stopAudio();
         prompt(null);
         const p = {controller: new AbortController(), requestedAt: performance.now(), questionText: $("interview-question").textContent.trim()};
+        $("interview-question").classList.add("question-awaiting-audio");
         playback = p;
         p.timeout = setTimeout(() => p.controller.abort(), config.REQUEST_TIMEOUT_SECONDS * 1000);
         state("thinking", "Preparing question audio…");
@@ -519,6 +522,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const playRequestedAt = performance.now();
             await p.player.play();
             if (playback === p) {
+                $("interview-question").classList.remove("question-awaiting-audio");
                 emit("voice:timing", {stage: "audio_playback_start_ms", ms: performance.now() - playRequestedAt});
                 state("speaking", "Your interviewer is speaking. Your microphone is off.");
                 emit("voice:playback", {at: performance.now()});

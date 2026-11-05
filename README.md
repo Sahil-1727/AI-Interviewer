@@ -23,6 +23,9 @@ conversational voice interviews, Deepgram, and PostgreSQL support.
   are no evaluated answers, the result reports insufficient evidence.
 - Store interviews and sessions in PostgreSQL when configured. The authenticated
   session can export its interview transcript as JSON.
+- Sign up and sign in with an account. New accounts can create up to two
+  interviews per UTC day; an administrator can adjust an individual account's
+  limit or deactivate it.
 
 The interview is turn-based rather than a full-duplex conversation. In automatic
 voice mode, the default is 10 seconds to begin speaking and 5 seconds of silence
@@ -76,31 +79,35 @@ python run.py
 ```
 
 Open <http://127.0.0.1:5000>, enter a name and job description, and upload a PDF
-resume. Review the instructions and microphone check, then start the interview
-or choose manual mode. Browser microphone and camera access require permission;
-remote deployments require HTTPS.
+resume. For the account flow, configure PostgreSQL and sign up or sign in first.
+Review the instructions and microphone check, then start the interview or choose
+manual mode. Browser microphone and camera access require permission; remote
+deployments require HTTPS.
 
 ## Storage and security
 
-With `DATABASE_URL` and a private, stable `SECRET_KEY`, manual and voice interview
-state, questions, answers, follow-ups, evaluations, transcripts, scorecards, and
-server-side sessions use PostgreSQL. See the
+With `DATABASE_URL` and a private, stable `SECRET_KEY`, accounts, daily usage,
+manual and voice interview state, questions, answers, follow-ups, evaluations,
+transcripts, scorecards, and server-side sessions use PostgreSQL. Public signup
+cannot grant administrator access. The private admin console is not linked from
+candidate pages; access is enforced by a server-side admin role. See the
 [PostgreSQL guide](docs/postgresql-integration.md) for ownership, session expiry,
-recovery, and migration details. Lost or expired browser sessions do not have an
-account-based recovery flow. Existing file-backed data is not automatically
-imported into PostgreSQL; the importer is not implemented.
+recovery, and migration details, and the
+[accounts guide](docs/accounts-and-quotas.md) for administrator setup and quotas.
+Existing file-backed data is not automatically imported into PostgreSQL; the
+importer is not implemented.
 
-Without `DATABASE_URL`, the app uses local filesystem-backed sessions and voice
-journals under `instance/`. This option is for local use or a single host with
-appropriate shared storage; it is not a substitute for shared database storage
-across deployment hosts.
+Account signup, login, and interview routes require PostgreSQL. The old local
+filesystem journal code remains available for isolated tests and development
+fallbacks, but it does not provide the account, quota, or multi-worker guarantees
+of the deployed flow.
 
 Never commit `.env`, API keys, database passwords, or generated interview data.
 Use HTTPS, secure cookies, a strong `SECRET_KEY`, and provider spending limits for
-hosted use. Interview access uses session-bound capabilities; it is not a full
-candidate account or authentication system. Test rate limits behind your proxy
-before public use. Sessions, recordings, and provider data are subject to the
-configured services and retention policies.
+hosted use. Account access is checked server-side and interview IDs alone do not
+authorize transcript access. Test rate limits behind your proxy before public
+use. Sessions, transcripts, and provider data are subject to configured
+services and retention policies.
 
 ## Database migrations
 
@@ -113,6 +120,10 @@ flask --app app.database:migration_app db current
 flask --app app.database:migration_app db upgrade
 ```
 
+After applying the migration, create the first administrator through a trusted
+shell with `flask --app run create-super-admin admin@example.com`. The command
+prompts for the password and does not print it.
+
 Run migrations before starting a fresh hosted service; the session interface can
 otherwise create a table that conflicts with its migration. Do not run database
 reset or downgrade commands on valuable data. The application does not migrate
@@ -122,21 +133,24 @@ old file journals automatically.
 
 The lightweight `requirements-production.txt` omits faster-whisper, PyAV,
 NumPy, and Edge TTS. `requirements.txt` retains those packages for local use.
-For a Render deployment using Deepgram and PostgreSQL:
+For a Render deployment using LiveKit or Deepgram and PostgreSQL:
 
 ```text
 Build: pip install -r requirements-production.txt
 Start: gunicorn -c gunicorn.conf.py run:app
 ```
 
-Set `APP_ENV=production`, `DATABASE_URL`, `SECRET_KEY`, `GEMINI_API_KEY`,
-`DEEPGRAM_API_KEY`, `STT_PROVIDER=deepgram`, `TTS_PROVIDER=deepgram`, and
-`SESSION_COOKIE_SECURE=1` in the host's environment. Render supplies `PORT`.
+For either voice mode, set `APP_ENV=production`, `DATABASE_URL`, `SECRET_KEY`,
+`GEMINI_API_KEY`, and `SESSION_COOKIE_SECURE=1` in the host's environment.
+Render supplies `PORT`. For Deepgram mode, also configure the Deepgram key and
+provider variables; for LiveKit, use the separate worker configuration below.
 The default Gunicorn configuration uses one threaded worker. See the
 [Render guide](docs/render-free.md) for migration order, limits, and deployment
 checks. A real deployment, live provider behavior, and peak memory under load must
 be validated for the intended environment; a local mock test alone does not prove
-that a 512 MB instance can support a particular workload.
+that a 512 MB instance can support a particular workload. For LiveKit, set
+`LIVEKIT_ENABLED=1` and the Flask-side LiveKit credentials/shared secret, then
+run the separate LiveKit agent worker. See [LiveKit setup](docs/livekit-integration.md).
 
 ## Testing
 

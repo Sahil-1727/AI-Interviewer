@@ -8,7 +8,7 @@ import run
 
 class RequestSecurityTests(unittest.TestCase):
     def test_csrf_required_and_valid_token_reaches_route(self):
-        with patch.dict(run.app.config, CSRF_ENABLED=True, RATE_LIMIT_ENABLED=False):
+        with patch.dict(run.app.config, CSRF_ENABLED=True, RATE_LIMIT_ENABLED=False, TESTING=True):
             client = run.app.test_client()
             page = client.get('/')
             token = re.search(rb'<meta name="csrf-token" content="([^"]+)"', page.data).group(1).decode()

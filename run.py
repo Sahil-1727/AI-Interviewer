@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from cachelib.file import FileSystemCache
-from flask import jsonify, send_file
+from flask import g, jsonify, send_file
 from flask_session import Session
 from sqlalchemy.exc import SQLAlchemyError
 from app.services.stt import transcribe_audio
@@ -24,6 +24,8 @@ from app.voice_config import voice_config
 from app.services.conversation import ConversationService, ConversationError
 from app.services.interview_flow import advance, copy_to_session
 from app.routes.conversation import conversation_bp
+from app.routes.accounts import accounts_bp, daily_usage, protect_accounts
+from app.services.interview_repository import InterviewQuotaExceeded
 
 
 app = Flask(
@@ -31,8 +33,20 @@ app = Flask(
     template_folder="app/templates",
     static_folder="app/static"
 )
+# Import LiveKit's token SDK during startup so the first candidate click does
+# not pay its import cost. The agent itself runs in the separate worker.
+livekit_enabled = os.getenv('LIVEKIT_ENABLED', '0').strip() == '1'
+if livekit_enabled:
+    from livekit.api import AccessToken as _LiveKitAccessToken  # noqa: F401
+app.jinja_env.globals['livekit_enabled'] = livekit_enabled
+app.jinja_env.globals['livekit_primary'] = livekit_enabled
 app.config["MAX_CONTENT_LENGTH"] = int(os.getenv('MAX_REQUEST_BYTES', str(12 * 1024 * 1024)))
 app.config['SOCK_SERVER_OPTIONS'] = {'max_message_size': 256 * 1024, 'ping_interval': 25}
+READINESS_TABLES = (
+    'web_sessions', 'users', 'interviews', 'questions', 'answers',
+    'evaluations', 'conversation_messages', 'scorecards', 'interview_requests',
+    'interview_access', 'voice_snapshots', 'request_limits', 'daily_interview_usage',
+)
 if app.config['MAX_CONTENT_LENGTH'] <= 0:
     raise RuntimeError('MAX_REQUEST_BYTES must be positive.')
 
@@ -45,6 +59,12 @@ if os.getenv('APP_ENV') == 'production':
         raise RuntimeError('Production cannot run in debug mode.')
     if os.getenv('CSRF_ENABLED', '1') == '0' or os.getenv('RATE_LIMIT_ENABLED', '1') == '0':
         raise RuntimeError('Production requires CSRF protection and rate limiting.')
+    if livekit_enabled:
+        required_livekit = ('LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET')
+        missing_livekit = [name for name in required_livekit if not os.getenv(name, '').strip()]
+        if (missing_livekit or len(os.getenv('LIVEKIT_AGENT_SHARED_SECRET', '').strip()) < 32
+                or not os.getenv('LIVEKIT_URL', '').startswith('wss://')):
+            raise RuntimeError('LIVEKIT_ENABLED=1 requires LiveKit URL/key/secret and a 32-character worker shared secret.')
 
 if os.getenv("DATABASE_URL") and not os.getenv("SECRET_KEY"):
     raise RuntimeError("SECRET_KEY must be set when using PostgreSQL-backed sessions.")
@@ -58,7 +78,9 @@ def upload_too_large(error):
 
 @app.errorhandler(SQLAlchemyError)
 def database_unavailable(error):
-    app.logger.warning('Database operation failed.')
+    sqlstate = getattr(getattr(error, 'orig', None), 'sqlstate', None)
+    app.logger.warning('Database operation failed: error_type=%s sqlstate=%s',
+                       type(error).__name__, sqlstate or 'unknown')
     response = jsonify(error='Service temporarily unavailable.')
     response.status_code = 503
     response.headers['Cache-Control'] = 'no-store'
@@ -93,31 +115,55 @@ app.extensions["conversation"] = ConversationService(
     voice_config(), journal=voice_journal,
 )
 app.register_blueprint(conversation_bp)
+app.register_blueprint(accounts_bp)
 from app.routes.deepgram_stream import sock
 sock.init_app(app)
 
 
 @app.before_request
 def check_session_storage():
+    if livekit_enabled and os.getenv('APP_ENV') == 'production' and request.path in {
+        '/api/transcribe', '/api/synthesize', '/api/voice/stream'
+    }:
+        return jsonify(error='This voice endpoint is disabled for the LiveKit interview transport.'), 404
     if getattr(session, '_storage_unavailable', False):
         return jsonify(error='Service temporarily unavailable.'), 503
 
 
 from app.security import init_security
 init_security(app)
+protect_accounts(app)
 
 
 @app.get('/health/ready')
 def readiness():
     if not os.getenv('DATABASE_URL'):
-        return jsonify(status='unavailable'), 503
+        response = jsonify(status='unavailable')
+        response.headers['Cache-Control'] = 'no-store'
+        return response, 503
     try:
         from sqlalchemy import text
+        table_names = ', '.join(f"'{name}'" for name in READINESS_TABLES)
         with db.engine.connect() as connection:
             connection.execute(text('SELECT 1'))
-        return jsonify(status='ready'), 200
+            # A reachable PostgreSQL server is not sufficient if migrations
+            # have not created the tables needed by sessions and interviews.
+            rows = connection.execute(text(f"""
+                SELECT name,
+                       to_regclass(format('%I.%I', current_schema(), name)) IS NOT NULL AS present
+                FROM unnest(ARRAY[{table_names}]) AS required(name)
+            """)).all()
+        if len(rows) != len(READINESS_TABLES) or any(not row.present for row in rows):
+            response = jsonify(status='unavailable')
+            response.headers['Cache-Control'] = 'no-store'
+            return response, 503
+        response = jsonify(status='ready')
+        response.headers['Cache-Control'] = 'no-store'
+        return response, 200
     except Exception:
-        return jsonify(status='unavailable'), 503
+        response = jsonify(status='unavailable')
+        response.headers['Cache-Control'] = 'no-store'
+        return response, 503
 
 
 @app.cli.command('cleanup-expired-sessions')
@@ -142,6 +188,7 @@ def voice_transcript():
         return jsonify(error='Interview not found.'), 404
     from app.services.interview_repository import InterviewNotFound, export_transcript
     try:
+        journal.authorize(identity, token, session.get('account_id'))
         with journal.sessions.begin() as db_session:
             messages = export_transcript(db_session, identity, token)
     except InterviewNotFound:
@@ -169,7 +216,7 @@ def sync_manual_interview():
     if not identity:
         return None
     service = app.extensions['conversation']
-    service.journal.authorize(identity, session.get('manual_interview_token'))
+    service.journal.authorize(identity, session.get('manual_interview_token'), session.get('account_id'))
     state = service.get(identity)
     copy_to_session(state, session)
     return state
@@ -226,6 +273,12 @@ def home():
 
     if request.method == "POST":
 
+        used_today, daily_limit = daily_usage(g.current_account.id)
+        if used_today >= daily_limit:
+            return render_template('index.html', error='You have reached your interview limit for today.',
+                                   candidate_name=g.current_account.display_name,
+                                   interviews_used=used_today, daily_limit=daily_limit), 429
+
         candidate_name = request.form.get("candidate_name")
         job_description = request.form.get("job_description")
         resume_file = request.files.get("resume")
@@ -250,7 +303,12 @@ def home():
             resume
         )
 
+        account_id = g.current_account.id
+        csrf = session.get('_csrf_token')
         session.clear()
+        session['account_id'] = account_id
+        if csrf:
+            session['_csrf_token'] = csrf
         session["candidate_name"] = candidate_name
         session["evaluation_context"] = {"job_description": job_description, "resume": resume}
         session["interview_plan"] = interview_plan
@@ -259,13 +317,25 @@ def home():
 
         journal = app.extensions['conversation'].journal
         if hasattr(journal, 'initialize'):
-            identity, token = journal.initialize(session, False)
+            try:
+                identity, token = journal.initialize(session, False)
+            except InterviewQuotaExceeded:
+                session.clear()
+                session['account_id'] = account_id
+                if csrf:
+                    session['_csrf_token'] = csrf
+                used, limit = daily_usage(account_id)
+                return render_template('index.html', error='You have reached your interview limit for today.',
+                                       candidate_name=candidate_name, interviews_used=used,
+                                       daily_limit=limit), 429
             session['manual_interview_id'] = identity
             session['manual_interview_token'] = token
 
         return redirect(url_for("start_interview"))
 
-    return render_template("index.html")
+    used, limit = daily_usage(g.current_account.id)
+    return render_template("index.html", candidate_name=g.current_account.display_name,
+                           interviews_used=used, daily_limit=limit)
 
 
 @app.route("/start-interview")
@@ -417,6 +487,12 @@ def final_scorecard():
 def transcribe():
 
     audio_file = request.files.get("audio")
+    if audio_file is None or not audio_file.filename:
+        return jsonify({"error": "Choose an audio recording before transcribing."}), 400
+    if os.getenv('STT_PROVIDER', 'whisper').strip().lower() == 'deepgram':
+        return jsonify({
+            "error": "Recorded-audio transcription is unavailable in Deepgram mode. Resume live streaming or type your answer."
+        }), 409
     started = time.perf_counter()
 
     try:

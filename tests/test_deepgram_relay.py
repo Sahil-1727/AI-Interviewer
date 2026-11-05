@@ -5,6 +5,7 @@ import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+from urllib.parse import parse_qs, urlsplit
 
 from flask import Flask, session
 import websocket
@@ -60,8 +61,13 @@ class RelayTests(unittest.TestCase):
     def test_authenticated_stream_relays_final_transcript(self):
         socket = Socket([json.dumps({'csrf': 'valid', 'turn_id': 'turn'}), b'audio', json.dumps({'type': 'finish'})])
         upstream = Upstream()
-        connection = self.relay(socket, upstream=upstream)
+        upstream.events.insert(1, json.dumps({'type': 'UtteranceEnd'}))
+        with patch.dict('os.environ', {'DEEPGRAM_UTTERANCE_END_MS': '1500'}):
+            connection = self.relay(socket, upstream=upstream)
         self.assertTrue(connection.called)
+        query = parse_qs(urlsplit(connection.call_args.args[0]).query)
+        self.assertEqual(query['utterance_end_ms'], ['1500'])
+        self.assertIn({'type': 'utterance_end'}, socket.sent)
         self.assertEqual(socket.sent[-1], {'type': 'complete', 'transcript': 'A complete answer.'})
         self.assertEqual(upstream.sent, [b'audio', {'type': 'CloseStream'}])
         self.assertTrue(upstream.closed)

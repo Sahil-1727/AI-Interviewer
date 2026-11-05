@@ -47,7 +47,7 @@ class DeepgramTTSTests(unittest.TestCase):
         async def fake_deepgram(text):
             return b'mock-mp3'
         with patch.dict(os.environ, {'TTS_PROVIDER': 'deepgram'}), \
-             patch.dict(run.app.config, {'CSRF_ENABLED': False, 'RATE_LIMIT_ENABLED': False}), \
+             patch.dict(run.app.config, {'CSRF_ENABLED': False, 'RATE_LIMIT_ENABLED': False, 'TESTING': True}), \
              patch('app.services.deepgram_tts.synthesize_deepgram', fake_deepgram):
             response = run.app.test_client().post('/api/synthesize', json={'text': 'Example'})
         self.assertEqual(response.status_code, 200)

@@ -29,10 +29,20 @@
                 <ul>
                     <li>Listen carefully to each question before answering.</li>
                     <li>Speak clearly and at a natural pace.</li>
+                    {% if livekit_primary %}
+                    <li>Speak naturally; the LiveKit interviewer listens for the end of your turn and supports interruptions.</li>
+                    <li>You can say "I'm done" or click Done Speaking when you want to finish your answer.</li>
+                    {% else %}
                     <li>Begin speaking within {{ voice_config.INITIAL_ANSWER_TIMEOUT_SECONDS|int }} seconds, or the question will be marked unanswered.</li>
+                    {% if voice_config.STT_PROVIDER == 'deepgram' %}
+                    <li>Once you start answering, about 2–3 seconds of silence may automatically finalize your answer.</li>
+                    <li>If you resume speaking before finalization, the silence timer resets.</li>
+                    {% else %}
                     <li>Once you start answering, 5 consecutive seconds of silence will automatically finalize and submit your answer.</li>
                     <li>If you resume speaking before those 5 seconds end, the silence timer resets.</li>
+                    {% endif %}
                     <li>You can also say "I'm done" or click Done Speaking to submit immediately.</li>
+                    {% endif %}
                     <li>Say "Repeat the question" if you want the AI interviewer to repeat the current question.</li>
                 </ul>
             </section>
@@ -62,7 +72,8 @@
             <p id="readiness-status" role="status" aria-live="polite">Check your microphone to begin. The camera check is optional.</p>
             <label class="instruction-acknowledgment"><input type="checkbox" id="instructions-acknowledged"> I have read and understood the interview instructions.</label>
             <div class="conversation-start">
-                <button type="button" id="begin-instructions" class="button button-primary" disabled>Start Interview {{ icon('arrow') }}</button>
+                <button type="button" id="begin-instructions" class="button button-primary" {% if livekit_primary %}hidden{% endif %} disabled>Start Interview {{ icon('arrow') }}</button>
+                {% if livekit_enabled %}<button type="button" id="begin-livekit" class="button button-primary" disabled>Start Interview {{ icon('arrow') }}</button>{% endif %}
                 <button type="button" id="instructions-manual" class="button button-text">Use manual mode</button>
             </div>
         </div>
@@ -82,7 +93,7 @@
     </div>
     <div class="interview-grid">
         <div class="conversation-column">
-            <section class="question-panel" aria-labelledby="interview-question">
+            <section id="question-panel" class="question-panel" {% if livekit_primary %}hidden{% endif %} aria-labelledby="interview-question">
                 <div class="interviewer-band">
                     <div class="interviewer-identity">
                         <div class="voice-symbol" aria-hidden="true">
@@ -101,7 +112,7 @@
                 </div>
                 <div class="question-content" id="question-content" style="visibility: hidden">
                     <div class="question-meta">
-                        <span class="eyebrow" id="question-count">
+                        <span class="eyebrow" id="question-count" {% if livekit_primary %}hidden{% endif %}>
                             {% if is_followup %}FOLLOW-UP QUESTION{% else %}QUESTION {{ '%02d'|format(current) }}{% if total %}
                             <span class="muted">/ {{ '%02d'|format(total) }}</span>
                             {% endif %}{% endif %}
@@ -109,9 +120,9 @@
                         <span class="skill-tag" id="question-skill">{{ question.skill }}</span>
                     </div>
                     <p class="followup-note" id="followup-note" {% if not is_followup %}hidden{% endif %}>Let’s explore your last answer a little further.</p>
-                    <h2 id="interview-question">{{ question.question }}</h2>
+                    <h2 id="interview-question" {% if livekit_primary %}hidden{% endif %} aria-live="polite">{{ question.question }}</h2>
                     <div class="question-bottom">
-                        <div class="audio-controls">
+                        <div class="audio-controls" {% if livekit_primary %}hidden{% endif %}>
                             <button type="button" id="speak-question" class="button button-text">{{ icon('speaker') }} Listen / repeat question</button>
                             <button type="button" id="stop-speaking" class="button button-text muted" disabled>{{ icon('stop') }} Stop audio</button>
                         </div>
@@ -122,7 +133,7 @@
             <section class="conversation-controls" aria-label="Interview controls">
                 {% if voice_mock_mode %}<p class="tiny-label">PRACTICE SANDBOX · SIMULATED INTERVIEW DECISIONS</p>{% endif %}
                 <div class="conversation-start">
-                    <button type="button" id="start-interview" class="button button-primary">Start Interview {{ icon('arrow') }}</button>
+                    <button type="button" id="start-interview" class="button button-primary" {% if livekit_primary %}hidden{% endif %}>Start Interview {{ icon('arrow') }}</button>
                     <button type="button" id="manual-mode" class="button button-text">Use manual mode</button>
                 </div>
                 <p id="voice-status" role="status" aria-live="polite">Start once, then answer naturally.</p>
@@ -156,7 +167,7 @@
                     <span class="tiny-label" id="answer-caption">A CONVERSATION AT YOUR PACE</span>
                 </div>
                 <textarea id="answer" name="answer" rows="6" placeholder="Take a moment to think, then make it your own…" required aria-describedby="answer-help voice-status">{{ manual_draft or '' }}</textarea>
-                <div class="recording-toolbar manual-only">
+                <div class="recording-toolbar manual-only" {% if livekit_primary %}hidden{% endif %}>
                     <label class="tiny-label" hidden><input type="checkbox" id="automatic-voice"> Automatic voice turns (experimental)</label>
                     <div class="recording-controls">
                         <button type="button" id="start-recording" class="button button-secondary">{{ icon('mic') }} Record answer</button>
@@ -231,4 +242,8 @@
 <script src="{{ url_for('static', filename='js/interview-instructions.js') }}"></script>
 <script src="{{ url_for('static', filename='js/conversation.js') }}"></script>
 <script src="{{ url_for('static', filename='js/camera.js') }}"></script>
+{% if livekit_enabled %}
+<script src="{{ url_for('static', filename='vendor/livekit/livekit-client.umd.js') }}"></script>
+<script src="{{ url_for('static', filename='js/livekit-interview.js') }}"></script>
+{% endif %}
 {% endblock %}

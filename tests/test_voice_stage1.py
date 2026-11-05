@@ -57,6 +57,13 @@ class CompletionTests(unittest.TestCase):
 
 
 class VoiceRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.previous_testing = run.app.testing
+        run.app.testing = True
+
+    def tearDown(self):
+        run.app.testing = self.previous_testing
+
     def test_transcribe_cannot_evaluate_or_advance_session(self):
         with (
             run.app.test_client() as client,

@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block title %}Account operations · AI Interviewer{% endblock %}
+{% block body_class %}admin-page{% endblock %}
+{% block content %}
+<main id="main" class="admin-layout page-width">
+    <header class="admin-heading"><div><p class="eyebrow">PRIVATE OPERATIONS</p><h1>Account <em>records.</em></h1><p class="muted">Daily usage resets at midnight UTC. Account IDs are stable identifiers.</p></div><span class="tiny-label">{{ accounts|length }} ACCOUNTS · {{ today }}</span></header>
+    {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<p class="admin-flash {{ category }}" role="status">{{ message }}</p>{% endfor %}{% endwith %}
+    <div class="admin-table-wrap">
+        <table class="admin-table">
+            <thead><tr><th>Account ID</th><th>Member</th><th>Created (UTC)</th><th>Interviews today</th><th>All-time</th><th>Daily limit</th><th>Access</th><th>Save</th></tr></thead>
+            <tbody>
+            {% for account in accounts %}
+                <tr>
+                    <td><code>{{ account.id }}</code></td>
+                    <td><strong>{{ account.display_name }}</strong><small>{{ account.email }}</small></td>
+                    <td>{{ account.created_at.isoformat() }}</td>
+                    <td>{{ daily_usage.get(account.id, 0) }}</td>
+                    <td>{{ total_interviews.get(account.id, 0) }}</td>
+                    <td colspan="3">
+                        <form method="POST" action="{{ url_for('accounts.account_console') }}" class="admin-edit-form">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="user_id" value="{{ account.id }}">
+                            <label class="visually-hidden" for="limit-{{ account.id }}">Daily interview limit for {{ account.email }}</label>
+                            <input id="limit-{{ account.id }}" type="number" name="daily_interview_limit" min="0" max="100" value="{{ account.daily_interview_limit }}" required>
+                            <label class="admin-active"><input type="checkbox" name="is_active" value="1" {% if account.is_active %}checked{% endif %}> Active</label>
+                            <button class="button button-secondary" type="submit">Save</button>
+                        </form>
+                    </td>
+                </tr>
+            {% else %}
+                <tr><td colspan="8">No accounts have signed up yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</main>
+{% endblock %}

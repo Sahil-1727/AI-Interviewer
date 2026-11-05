@@ -19,6 +19,9 @@ from app.voice_config import DEFAULTS
 
 class ConversationTests(unittest.TestCase):
     def setUp(self):
+        old_testing = run.app.testing
+        run.app.testing = True
+        self.addCleanup(setattr, run.app, 'testing', old_testing)
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.evaluate = Mock(side_effect=mock_evaluate)

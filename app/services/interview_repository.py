@@ -6,14 +6,19 @@ complete replacement for the existing conversation service.
 import hashlib
 import hmac
 import secrets
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 
-from app.models.interview import ConversationMessage, Interview, InterviewAccess, Question, User
+from app.models.interview import ConversationMessage, DailyInterviewUsage, Interview, InterviewAccess, Question, User
 
 
 class InterviewNotFound(Exception):
     """Missing or unauthorized interviews deliberately have the same result."""
+
+
+class InterviewQuotaExceeded(Exception):
+    """The account has used its daily interview allowance."""
 
 
 def token_digest(token):
@@ -35,12 +40,30 @@ def authorized_interview(session, interview_id, token, *, lock=False):
     return result[0]
 
 
-def create_interview(session, candidate_name, job_description, resume, plan):
+def create_interview(session, candidate_name, job_description, resume, plan, *, owner_id=None):
     """Create the plan and one owner capability in the caller's transaction."""
     if not isinstance(plan, dict) or not isinstance(plan.get("questions"), list) or not plan["questions"]:
         raise ValueError("An interview plan with questions is required.")
     token = secrets.token_urlsafe(32)
-    owner = User(display_name=candidate_name)
+    if owner_id is None:
+        owner = User(display_name=candidate_name)
+        session.add(owner)
+        session.flush()
+    else:
+        # Serializing on the account row makes concurrent starts across workers
+        # observe and increment one daily counter without exceeding the limit.
+        owner = session.scalar(select(User).where(User.id == owner_id).with_for_update())
+        if owner is None or not owner.is_active:
+            raise InterviewNotFound("Account is unavailable.")
+        usage_date = datetime.now(timezone.utc).date()
+        usage = session.get(DailyInterviewUsage, (owner_id, usage_date))
+        if usage is None:
+            usage = DailyInterviewUsage(user_id=owner_id, usage_date=usage_date, interview_count=0)
+            session.add(usage)
+            session.flush()
+        if usage.interview_count >= owner.daily_interview_limit:
+            raise InterviewQuotaExceeded("You have reached your interview limit for today.")
+        usage.interview_count += 1
     interview = Interview(owner=owner, job_description=job_description, resume_text=resume, plan=plan)
     session.add(interview)
     session.flush()

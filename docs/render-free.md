@@ -1,9 +1,13 @@
 # Render Free deployment
 
-This configuration uses browser microphone streaming with Deepgram STT and TTS,
-Gemini, and Neon PostgreSQL. Local development can continue to install
-`requirements.txt` and use Whisper and Edge TTS. Render uses Python 3.14 and
-installs only `requirements-production.txt`; it does not download Whisper models.
+This configuration supports browser microphone streaming with Deepgram STT and
+TTS, Gemini, and Neon PostgreSQL. For the persistent LiveKit conversational
+experience, set `LIVEKIT_ENABLED=1` and deploy the separate agent described in
+[`livekit-integration.md`](livekit-integration.md); that disables the legacy
+Deepgram voice endpoints in production while keeping typed manual answers.
+Local development can continue to install `requirements.txt` and use Whisper
+and Edge TTS. Render uses `requirements-production.txt`; it does not download
+Whisper models.
 
 ## Prepare the database first
 
@@ -52,9 +56,9 @@ Set these environment variables in Render's environment settings, not in Git:
 | `DATABASE_URL` | Private Neon PostgreSQL connection URL, with `sslmode=require` |
 | `SECRET_KEY` | Private, random value of at least 32 characters; keep stable across restarts |
 | `GEMINI_API_KEY` | Private Gemini API key |
-| `DEEPGRAM_API_KEY` | Private Deepgram API key |
-| `STT_PROVIDER` | `deepgram` |
-| `TTS_PROVIDER` | `deepgram` |
+| `DEEPGRAM_API_KEY` | Private Deepgram key; required only for Deepgram voice mode |
+| `STT_PROVIDER` | `deepgram` for Deepgram mode; LiveKit mode uses the separate agent |
+| `TTS_PROVIDER` | `deepgram` for Deepgram mode; LiveKit mode uses the separate agent |
 | `SESSION_COOKIE_SECURE` | `1` |
 
 Render supplies `PORT`; do not override `GUNICORN_BIND`. The default is one
@@ -62,10 +66,17 @@ Gunicorn `gthread` worker with four threads and at most two simultaneous
 Deepgram streams per worker. Additional tuning and model settings are listed
 in `.env.example`; `GUNICORN_GRACEFUL_TIMEOUT_SECONDS=25` is recommended on
 Render because its shutdown window is limited. `/health/ready` checks database
-connectivity; it does not verify schema revision or external APIs.
+connectivity and the presence of the tables required by this application. It
+does not verify the exact Alembic revision or external provider availability;
+apply migrations before deploying and test Gemini/Deepgram separately.
 
 The database and keys are required; do not put them in build commands, logs, or
 source control. Rotating `SECRET_KEY` invalidates existing browser sessions.
+After applying the account migration, create the first super-admin through the
+private Render shell with `flask --app run create-super-admin admin@example.com`.
+The command prompts for the password. Candidates can then self-register; the
+admin console is not linked from candidate pages. See
+[`accounts-and-quotas.md`](accounts-and-quotas.md) for account limits and access.
 
 ## Limitations before a public launch
 

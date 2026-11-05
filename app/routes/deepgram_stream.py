@@ -45,6 +45,7 @@ def _check_turn(service, identity, session_data, turn_id):
 def _relay(ws):
     # Browser WebSocket requests do not support custom CSRF headers. Require
     # same-origin AND the existing session's CSRF token in the first message.
+    relay_started = time.perf_counter()
     upstream = None
     acquired = False
     try:
@@ -81,21 +82,27 @@ def _relay(ws):
             _send(ws, 'error', message='Streaming is unavailable.')
             return
         acquired = True
+        settings = voice_config()
         params = urlencode({'model': os.getenv('DEEPGRAM_STT_MODEL', 'nova-3'), 'language': 'en',
                             'interim_results': 'true', 'vad_events': 'true', 'endpointing': '400',
-                            'utterance_end_ms': '5000', 'smart_format': 'true'})
-        settings = voice_config()
+                            'utterance_end_ms': str(int(settings['DEEPGRAM_UTTERANCE_END_MS'])),
+                            'smart_format': 'true'})
+        provider_connect_started = time.perf_counter()
         upstream = websocket.create_connection('wss://api.deepgram.com/v1/listen?' + params,
                                                header=['Authorization: Token ' + key], timeout=settings['DEEPGRAM_CONNECT_TIMEOUT_SECONDS'])
+        provider_connect_ms = (time.perf_counter() - provider_connect_started) * 1000
         upstream.settimeout(.05)
         _send(ws, 'ready')
-        current_app.logger.warning('Speech relay connected to provider.')
+        current_app.logger.warning('voice_timing stage=deepgram_provider_connect_ms ms=%.2f', provider_connect_ms)
+        current_app.logger.warning('voice_timing stage=deepgram_relay_ready_ms ms=%.2f',
+                                   (time.perf_counter() - relay_started) * 1000)
         transcript = DeepgramTranscript()
         started = time.monotonic()
         next_check = started + 1
         received = 0
         closing = False
         close_deadline = None
+        close_requested_at = None
         pending_check = None
         check_started = None
         session_data = {'voice_interview_token': session.get('voice_interview_token')}
@@ -128,6 +135,7 @@ def _relay(ws):
                 if command == {'type': 'finish'} and not closing:
                     upstream.send(json.dumps({'type': 'CloseStream'}))
                     closing = True
+                    close_requested_at = time.perf_counter()
                     close_deadline = time.monotonic() + settings['DEEPGRAM_FINALIZE_TIMEOUT_SECONDS']
                     current_app.logger.warning('Speech relay requested finalization; audio_bytes=%d.', received)
                 else:
@@ -148,15 +156,26 @@ def _relay(ws):
                 confidence = alternatives[0].get('confidence') if alternatives and isinstance(alternatives[0], dict) else None
                 confident = isinstance(confidence, (int, float)) and not isinstance(confidence, bool) and settings['DEEPGRAM_COMMAND_MIN_CONFIDENCE'] <= confidence <= 1
                 _send(ws, 'transcript', transcript=transcript.transcript, interim=transcript.interim,
-                      recognized=recognized, final=event.get('is_final') is True, command_confident=confident)
+                      recognized=recognized, final=event.get('is_final') is True,
+                      speech_final=event.get('speech_final') is True, command_confident=confident)
+            elif event_type == 'UtteranceEnd':
+                # The browser waits a short configurable grace period before
+                # closing, so a late finalized transcript can still be relayed.
+                current_app.logger.warning('Deepgram utterance-end event received.')
+                _send(ws, 'utterance_end')
             elif event_type == 'Metadata' and closing:
                 # A pending check may be slow. Answer submission independently
                 # verifies ownership and the current turn before evaluation.
-                current_app.logger.warning('Speech relay finalization confirmed.')
+                if close_requested_at is not None:
+                    current_app.logger.warning('voice_timing stage=deepgram_provider_finalize_ms ms=%.2f',
+                                               (time.perf_counter() - close_requested_at) * 1000)
                 _send(ws, 'complete', transcript=transcript.transcript)
                 return
         _send(ws, 'error', message='Speech streaming ended. Please retry the answer.')
-    except (ConnectionClosed, websocket.WebSocketConnectionClosedException):
+    except (ConnectionClosed, websocket.WebSocketConnectionClosedException, BrokenPipeError, ConnectionResetError):
+        # Pause, navigation, or a lost browser connection closes the downstream
+        # socket intentionally. Treat it as cleanup, not a provider failure.
+        pass
         pass
     except Exception as error:
         # Provider messages may contain sensitive headers; never log them.

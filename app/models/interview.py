@@ -1,8 +1,8 @@
 """Normalized interview records. UUID identifiers are not authorization."""
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import db
@@ -20,8 +20,22 @@ class User(db.Model):
     __tablename__ = "users"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=identifier)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(320), unique=True, index=True)
+    password_hash: Mapped[str | None] = mapped_column(Text)
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    daily_interview_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     interviews: Mapped[list["Interview"]] = relationship(back_populates="owner")
+    __table_args__ = (CheckConstraint("daily_interview_limit >= 0", name="daily_interview_limit_nonnegative"),)
+
+
+class DailyInterviewUsage(db.Model):
+    __tablename__ = "daily_interview_usage"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    usage_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    interview_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    __table_args__ = (CheckConstraint("interview_count >= 0", name="interview_count_nonnegative"),)
 
 
 class Interview(db.Model):

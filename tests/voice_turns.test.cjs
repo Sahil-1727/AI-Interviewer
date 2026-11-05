@@ -76,7 +76,11 @@ test('five seconds of silence ends speech; resumed speech and noise are handled'
 });
 
 class Target {
-    constructor() { this.events = {}; this.dataset = {}; this.disabled = false; this.value = ''; this.textContent = ''; this.hidden = false; }
+    constructor() {
+        this.events = {}; this.dataset = {}; this.disabled = false; this.value = ''; this.textContent = ''; this.hidden = false;
+        const classes = new Set();
+        this.classList = {add: name => classes.add(name), remove: name => classes.delete(name), contains: name => classes.has(name)};
+    }
     addEventListener(type, fn) { (this.events[type] ||= []).push(fn); }
     emit(type, event = {}) { for (const fn of this.events[type] || []) fn(event); }
     click() { if (!this.disabled) this.emit('click'); }
@@ -313,10 +317,20 @@ test('manual mode needs no Web Audio and records until Done; Pause/Resume append
 test('TTS keeps mic closed, then auto-listens only after ended plus settle time', async () => {
     const b = browser(); b.elements['speak-question'].click(); await flush();
     assert.equal(b.state(), 'speaking'); assert.equal(b.streams.length, 0);
+    assert.equal(b.elements['interview-question'].classList.contains('question-awaiting-audio'), false);
     b.players[0].onended(); await b.advance(599);
     assert.equal(b.streams.length, 0);
     await b.advance(1); assert.equal(b.streams.length, 1); assert.equal(b.state(), 'thinking');
     assert.equal(b.objectUrls.size, 0);
+});
+
+test('question text stays hidden while synthesis is pending and appears when playback starts', async () => {
+    const tts = deferred(); const b = browser({tts});
+    b.elements['speak-question'].click(); await flush();
+    assert.equal(b.elements['interview-question'].classList.contains('question-awaiting-audio'), true);
+    tts.resolve({ok: true, blob: async () => new Blob(['tts'])}); await flush();
+    assert.equal(b.state(), 'speaking');
+    assert.equal(b.elements['interview-question'].classList.contains('question-awaiting-audio'), false);
 });
 
 test('repeat saves speech and releases microphone before any interviewer audio', async () => {

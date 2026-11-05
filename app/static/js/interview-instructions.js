@@ -11,6 +11,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const acknowledged = document.getElementById('instructions-acknowledged');
     function buttons() {
         begin.disabled = start.disabled || !microphoneReady || !acknowledged.checked;
+        const livekit = document.getElementById('begin-livekit');
+        if (livekit) livekit.disabled = begin.disabled;
         document.getElementById('check-microphone').disabled = checking;
         document.getElementById('check-camera').disabled = checking;
     }
@@ -48,6 +50,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('check-microphone').addEventListener('click', () => void check('microphone'));
     document.getElementById('check-camera').addEventListener('click', () => void check('camera'));
     begin.addEventListener('click', () => { ++generation; dialog.close(); revealQuestion(); start.click(); });
+    document.getElementById('begin-livekit')?.addEventListener('click', () => {
+        ++generation; dialog.close(); revealQuestion();
+        document.dispatchEvent(new CustomEvent('interview:livekit-start'));
+    });
     start.addEventListener('click', event => {
         // Manual mode can be chosen without a microphone. Starting voice from
         // there must still go through the acknowledgment and readiness gate.
@@ -64,7 +70,8 @@ document.addEventListener('DOMContentLoaded', () => {
     dialog.addEventListener('cancel', event => event.preventDefault());
     document.addEventListener('interview:ready', event => {
         if (event.detail.existing) revealQuestion();
-        if (!event.detail.existing && typeof dialog.showModal === 'function' && !dialog.open) dialog.showModal();
+        const resumeLivekit = event.detail.existing && start.hidden && document.body.dataset.interviewMode === 'voice';
+        if ((!event.detail.existing || resumeLivekit) && typeof dialog.showModal === 'function' && !dialog.open) dialog.showModal();
         buttons();
     });
     window.addEventListener('pagehide', () => { ++generation; });

@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}Create an account · AI Interviewer{% endblock %}
+{% block body_class %}account-page{% endblock %}
+{% block content %}
+<main id="main" class="account-layout page-width">
+    <section class="account-card" aria-labelledby="account-title">
+        <p class="eyebrow">A SPACE TO PRACTICE</p>
+        <h1 id="account-title">Start with <em>possibility.</em></h1>
+        <p class="muted">Create your account. You can start up to two interviews each day.</p>
+        {% if error %}<p class="account-error" role="alert">{{ error }}</p>{% endif %}
+        <form method="POST" action="{{ url_for('accounts.signup') }}" data-submit-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="field"><label for="display-name">Your name</label><input id="display-name" name="display_name" autocomplete="name" value="{{ display_name or '' }}" maxlength="255" required></div>
+            <div class="field"><label for="email">Email address</label><input id="email" name="email" type="email" autocomplete="email" value="{{ email or '' }}" maxlength="320" required></div>
+            <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="20" required><p class="field-help">Use 8–20 characters.</p></div>
+            <div class="field"><label for="password-confirmation">Confirm password</label><input id="password-confirmation" name="password_confirmation" type="password" autocomplete="new-password" minlength="8" maxlength="20" required></div>
+            <button class="button button-primary button-full" type="submit">Create account {{ icon('arrow') }}</button>
+        </form>
+        <p class="account-switch">Already have an account? <a href="{{ url_for('accounts.login') }}">Sign in</a></p>
+    </section>
+</main>
+{% endblock %}

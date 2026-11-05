@@ -614,6 +614,9 @@ input:hover,textarea:hover {
     margin: 22px 0 30px;
     overflow-wrap: anywhere;
 }
+.question-content h2.question-awaiting-audio {
+    visibility: hidden;
+}
 .question-content h2 .spoken-word {
     color: var(--copper-dark);
     background: var(--tint);
@@ -1750,3 +1753,37 @@ body[data-interview-mode=voice] .answer-heading { margin-bottom: 8px; }
 .instruction-acknowledgment { display: flex; gap: 9px; align-items: flex-start; margin: 18px 0; font-size: 13px; }
 .instruction-acknowledgment input { margin-top: 4px; }
 .performance-overview.insufficient-evidence { display: block; }
+
+.header-actions { display: flex; align-items: center; gap: 14px; }
+.header-logout { margin: 0; }
+.header-logout .button { font-size: 12px; padding: 8px 10px; }
+.account-page .journey, .admin-page .journey { display: none; }
+.account-layout { min-height: calc(100vh - 190px); display: grid; place-items: center; padding-top: 44px; padding-bottom: 64px; }
+.account-card { width: min(100%, 500px); padding: clamp(26px, 5vw, 48px); border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 12px 40px rgba(40, 40, 32, .05); }
+.account-card h1 { margin: 12px 0; font-size: clamp(38px, 5vw, 54px); }
+.account-card > .muted { margin-bottom: 26px; }
+.account-card .field { margin: 18px 0; }
+.account-card .field input { width: 100%; min-height: 48px; border: 1px solid var(--input-line); border-radius: 6px; padding: 10px 12px; background: var(--surface); }
+.account-error { margin: 18px 0; border-left: 3px solid var(--copper); padding: 10px 12px; background: var(--tint); font-size: 13px; }
+.account-switch { margin-top: 22px; font-size: 13px; color: var(--muted); }
+.account-switch a { color: var(--copper-dark); font-weight: 650; }
+.account-quota { margin: 14px 0 20px; color: var(--muted); font-size: 12px; }
+.admin-layout { padding-top: 42px; padding-bottom: 70px; }
+.admin-heading { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 28px; }
+.admin-heading h1 { margin: 8px 0; }
+.admin-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.admin-table th, .admin-table td { padding: 13px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+.admin-table th { color: var(--muted); font: 11px var(--mono); white-space: nowrap; }
+.admin-table code { font-size: 10px; overflow-wrap: anywhere; }
+.admin-table td small { display: block; color: var(--muted); margin-top: 4px; }
+.admin-edit-form { display: flex; align-items: center; gap: 10px; min-width: 260px; }
+.admin-edit-form input[type=number] { width: 72px; min-height: 38px; border: 1px solid var(--input-line); border-radius: 5px; padding: 6px; }
+.admin-active { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.admin-flash { padding: 10px 14px; margin-bottom: 16px; background: var(--tint); font-size: 13px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+@media (max-width: 800px) {
+    .header-actions .header-note { display: none; }
+    .admin-heading { align-items: flex-start; flex-direction: column; }
+}

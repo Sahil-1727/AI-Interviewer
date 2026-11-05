@@ -23,8 +23,11 @@ class PostgresVoiceJournal:
             context = flask_session.get("evaluation_context", {})
             identity, token = create_interview(db_session, flask_session.get("candidate_name") or "Candidate",
                                                context.get("job_description") or "", context.get("resume"),
-                                               flask_session["interview_plan"])
+                                               flask_session["interview_plan"],
+                                               owner_id=flask_session.get('account_id'))
             state = {field: deepcopy(flask_session[field]) for field in FIELDS if field in flask_session}
+            if flask_session.get('account_id'):
+                state['owner_account'] = flask_session['account_id']
             state.update(id=identity, turn_id=uuid4().hex, status="ready", paused=False, jobs={}, mock=bool(mock),
                          draft="", error=None, timings={}, created_at=time.time(), updated_at=time.time(), version=1)
             if question_for(state) is None:
@@ -33,11 +36,15 @@ class PostgresVoiceJournal:
             self._project(db_session, identity, state)
         return identity, token
 
-    def authorize(self, identity, token):
+    def authorize(self, identity, token, account_id=None):
         from app.services.conversation import ConversationError
         try:
             with self.sessions.begin() as session:
                 authorized_interview(session, identity, token)
+                if account_id is not None:
+                    snapshot = session.get(VoiceSnapshot, identity)
+                    if snapshot is None or snapshot.state.get('owner_account') != account_id:
+                        raise InterviewNotFound('Interview not found.')
         except InterviewNotFound as error:
             raise ConversationError("Interview not found.", 404) from error
 
@@ -71,6 +78,58 @@ class PostgresVoiceJournal:
         interview.current_question = state.get("current_question", 0)
         session.flush()
         mains = session.scalars(select(Question).where(Question.interview_id == identity, Question.parent_id.is_(None)).order_by(Question.sequence)).all()
+        if state.get('agent_led'):
+            messages = session.scalars(select(ConversationMessage).where(
+                ConversationMessage.interview_id == identity).order_by(ConversationMessage.sequence)).all()
+            existing_count = len(messages)
+            raw_events = state.get('livekit_events', [])
+            for event in raw_events[existing_count:]:
+                index = event['sequence']
+                kind = 'question' if event['kind'] == 'interviewer' else 'candidate'
+                session.add(ConversationMessage(interview_id=identity, sequence=index, kind=kind,
+                                                text=event['text'], question_id=None))
+            if state.get('status') == 'completed':
+                follow_up_index = 0
+                for index, item in enumerate(state.get('interview_history', [])):
+                    if item.get('type') == 'follow_up':
+                        parent_index = item.get('parent_plan_index')
+                        parent = mains[parent_index] if isinstance(parent_index, int) and 0 <= parent_index < len(mains) else (mains[-1] if mains else None)
+                        if parent is None:
+                            continue
+                        sequence = len(mains) + follow_up_index
+                        follow_up_index += 1
+                        question = session.scalar(select(Question).where(
+                            Question.interview_id == identity, Question.parent_id == parent.id,
+                            Question.sequence == sequence, Question.kind == 'follow_up'))
+                        if question is None:
+                            question = Question(interview_id=identity, parent_id=parent.id,
+                                sequence=sequence, kind='follow_up', skill=item.get('skill', parent.skill),
+                                text=item['question'])
+                            session.add(question)
+                            session.flush()
+                    else:
+                        plan_index = item.get('plan_index', index)
+                        if not isinstance(plan_index, int) or not 0 <= plan_index < len(mains):
+                            continue
+                        question = mains[plan_index]
+                        question.text = item['question']
+                    answer = session.scalar(select(Answer).where(Answer.question_id == question.id))
+                    if answer is None:
+                        answer = Answer(question_id=question.id, status='answered', transcript=item['answer'])
+                        session.add(answer)
+                        session.flush()
+                    evaluation = item.get('evaluation')
+                    if evaluation and session.scalar(select(Evaluation.id).where(Evaluation.answer_id == answer.id)) is None:
+                        session.add(Evaluation(answer_id=answer.id, score=evaluation['score'],
+                            strengths=evaluation.get('strengths', []), weaknesses=evaluation.get('weaknesses', []),
+                            feedback=evaluation.get('feedback', ''), follow_up_needed=evaluation.get('follow_up_needed', False),
+                            follow_up_question=evaluation.get('follow_up_question')))
+                session.add(ConversationMessage(interview_id=identity,
+                    sequence=len(raw_events), kind='completion', text='Interview completed', question_id=None))
+                if state.get('final_scorecard') and session.scalar(select(Scorecard.id).where(Scorecard.interview_id == identity)) is None:
+                    session.add(Scorecard(interview_id=identity, result=state['final_scorecard'],
+                        completion_status=state['status'], early_ended=bool(state.get('early_ended'))))
+            return
         events = []
         history = state.get("interview_history", [])
         pending_follow = state.get("current_follow_up")

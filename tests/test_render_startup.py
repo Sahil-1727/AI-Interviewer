@@ -17,7 +17,7 @@ class BlockLocalSpeech(importlib.abc.MetaPathFinder):
             raise ModuleNotFoundError('Local speech dependency imported: ' + fullname)
 sys.meta_path.insert(0, BlockLocalSpeech())
 import run
-assert run.app.test_client().get('/').status_code == 200
+assert run.app.test_client().get('/').status_code == 302
 '''
         env = os.environ.copy()
         env.update(APP_ENV='testing', DATABASE_URL='', STT_PROVIDER='deepgram',

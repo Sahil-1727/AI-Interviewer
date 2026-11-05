@@ -27,19 +27,28 @@ def init_security(app):
 
     @app.before_request
     def protect_state_changes():
+        # Worker calls are authenticated by a constant-time shared-secret
+        # check plus a short-lived signed room/interview ticket in the route.
+        # They have no browser session and therefore cannot provide CSRF.
+        if request.path.startswith('/api/conversation/livekit/agent/'):
+            return None
         streaming = request.path == '/api/voice/stream' and request.method == 'GET'
         if request.method not in {'POST', 'PUT', 'PATCH', 'DELETE'} and not streaming:
             return None
         if app.config['RATE_LIMIT_ENABLED'] and os.getenv('DATABASE_URL'):
             from app.database import db
             path = request.path
-            limit = int(os.getenv('RATE_LIMIT_AUDIO_PER_MINUTE', '30') if path in {'/api/transcribe', '/api/synthesize', '/api/voice/stream'}
-                        else os.getenv('RATE_LIMIT_INTERVIEW_PER_MINUTE', '60'))
+            if path in {'/login', '/signup'}:
+                limit = int(os.getenv('RATE_LIMIT_AUTH_PER_MINUTE', '12'))
+                category = 'auth'
+            else:
+                limit = int(os.getenv('RATE_LIMIT_AUDIO_PER_MINUTE', '30') if path in {'/api/transcribe', '/api/synthesize', '/api/voice/stream'}
+                            else os.getenv('RATE_LIMIT_INTERVIEW_PER_MINUTE', '60'))
+                category = 'audio' if path in {'/api/transcribe', '/api/synthesize', '/api/voice/stream'} else 'interview'
             if limit < 1:
                 raise ValueError('Rate limit must be positive.')
             bucket = int(time.time()) // 60
             key = hashlib.sha256((request.remote_addr or 'unknown').encode()).hexdigest()
-            category = 'audio' if path in {'/api/transcribe', '/api/synthesize', '/api/voice/stream'} else 'interview'
             try:
                 with db.engine.begin() as connection:
                     count = connection.execute(text('''INSERT INTO request_limits (client_hash, category, bucket, count)

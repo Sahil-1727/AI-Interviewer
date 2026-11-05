@@ -80,6 +80,11 @@ requires `STT_PROVIDER=whisper` (typed manual answers work in either mode).
 `DEEPGRAM_COMMAND_MIN_CONFIDENCE` controls whether a final command is acted on;
 connection and finalization timeouts are configurable with
 `DEEPGRAM_CONNECT_TIMEOUT_SECONDS` and `DEEPGRAM_FINALIZE_TIMEOUT_SECONDS`.
+In Deepgram mode the relay uses `UtteranceEnd` plus a short grace period; the
+configurable 2.8-second Deepgram silence timeout is a fallback. Whisper keeps
+the existing five-second policy. This trades a small amount of pause tolerance
+for a quicker next turn. Candidates can say
+“I'm done” or click Done Speaking to complete a turn explicitly.
 Whisper is not silently substituted for a selected Deepgram provider.
 
 Flask-Sock needs a WebSocket-capable server. `gunicorn.conf.py` uses `gthread`,
@@ -92,7 +97,10 @@ recognition accuracy, real-world latency, or hosted proxy compatibility.
 | --- | ---: | --- |
 | INITIAL_ANSWER_TIMEOUT_SECONDS | 10 | Mark an initially silent managed voice turn unanswered |
 | INITIAL_THINKING_PROMPT_SECONDS | 15 | Gentle visual prompt in standalone automatic recording |
-| END_OF_ANSWER_SILENCE_SECONDS | 5 | Finish automatically after this much silence following activity |
+| END_OF_ANSWER_SILENCE_SECONDS | 5 | Whisper turn timeout after recognized activity |
+| DEEPGRAM_SILENCE_FALLBACK_SECONDS | 2.8 | Deepgram fallback if its utterance-end event is delayed |
+| DEEPGRAM_UTTERANCE_END_MS | 1500 | Ask Deepgram to signal an utterance boundary after recognized silence |
+| DEEPGRAM_FINAL_TURN_GRACE_SECONDS | 0.8 | Allow late finalized words after Deepgram's utterance-end event |
 | ACTIVITY_GAP_SECONDS | 0.2 | Allow short level drops between observed sound while detecting speech |
 | COMMAND_CHECKPOINT_SECONDS | 1 | Pause before sending a segment for early phrase recognition |
 | PLAYBACK_SETTLE_SECONDS | 0.6 | Mic remains closed after question audio |

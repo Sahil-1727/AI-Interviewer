@@ -7,6 +7,9 @@ DEFAULTS = {
     "INITIAL_THINKING_PROMPT_SECONDS": 15,
     "INITIAL_ANSWER_TIMEOUT_SECONDS": 10,
     "END_OF_ANSWER_SILENCE_SECONDS": 5,
+    # Deepgram endpointing uses its own shorter silence fallback. Whisper keeps
+    # the existing more patient five-second policy.
+    "DEEPGRAM_SILENCE_FALLBACK_SECONDS": 2.8,
     "COMMAND_CHECKPOINT_SECONDS": 1,
     "AUDIO_SAMPLE_INTERVAL_MS": 50,
     "AUDIO_LEVEL_THRESHOLD": 0.025,
@@ -26,6 +29,7 @@ DEFAULTS = {
     "TTS_TIMEOUT_SECONDS": 60,
     "CONVERSATION_WORKERS": 2,
     "CONVERSATION_QUEUE_LIMIT": 4,
+    "LIVEKIT_FINALIZE_EVALUATION_CONCURRENCY": 4,
     "CONVERSATION_STALE_SECONDS": 240,
     "CONVERSATION_RETENTION_SECONDS": 86400,
     "NOISE_FLOOR_MULTIPLIER": 2.5,
@@ -37,6 +41,8 @@ DEFAULTS = {
     "DEEPGRAM_COMMAND_MIN_CONFIDENCE": 0.85,
     "DEEPGRAM_CONNECT_TIMEOUT_SECONDS": 15,
     "DEEPGRAM_FINALIZE_TIMEOUT_SECONDS": 8,
+    "DEEPGRAM_UTTERANCE_END_MS": 1500,
+    "DEEPGRAM_FINAL_TURN_GRACE_SECONDS": 0.8,
 }
 
 
@@ -49,15 +55,22 @@ def voice_config():
         settings[name] = value
     if settings["COMMAND_CHECKPOINT_SECONDS"] >= settings["END_OF_ANSWER_SILENCE_SECONDS"]:
         raise ValueError("COMMAND_CHECKPOINT_SECONDS must be below END_OF_ANSWER_SILENCE_SECONDS")
+    if settings["DEEPGRAM_UTTERANCE_END_MS"] > 10_000 or (
+        settings["DEEPGRAM_UTTERANCE_END_MS"] / 1000 + settings["DEEPGRAM_FINAL_TURN_GRACE_SECONDS"]
+        >= settings["DEEPGRAM_SILENCE_FALLBACK_SECONDS"]
+    ):
+        raise ValueError("Deepgram endpointing and grace must be shorter than the silence fallback")
     if settings["AUDIO_LEVEL_THRESHOLD"] >= 1 or settings["COMPLETION_MAX_NO_SPEECH_PROB"] > 1 or settings["DEEPGRAM_COMMAND_MIN_CONFIDENCE"] > 1:
         raise ValueError("Audio level and probability settings must be within 0–1")
     if settings["SEGMENT_SECONDS"] >= settings["MAX_SEGMENT_SECONDS"]:
         raise ValueError("SEGMENT_SECONDS must be below MAX_SEGMENT_SECONDS")
     if settings["CONVERSATION_STALE_SECONDS"] <= settings["GEMINI_TIMEOUT_SECONDS"] * 2:
         raise ValueError("CONVERSATION_STALE_SECONDS must exceed two Gemini timeouts")
-    for name in ("CONVERSATION_WORKERS", "CONVERSATION_QUEUE_LIMIT", "MAX_PENDING_SEGMENTS", "WHISPER_BEAM_SIZE"):
+    for name in ("CONVERSATION_WORKERS", "CONVERSATION_QUEUE_LIMIT", "MAX_PENDING_SEGMENTS", "WHISPER_BEAM_SIZE", "DEEPGRAM_UTTERANCE_END_MS", "LIVEKIT_FINALIZE_EVALUATION_CONCURRENCY"):
         if settings[name] != int(settings[name]) or settings[name] < 1:
             raise ValueError(f"{name} must be a positive integer")
+    if settings["LIVEKIT_FINALIZE_EVALUATION_CONCURRENCY"] > 4:
+        raise ValueError("LIVEKIT_FINALIZE_EVALUATION_CONCURRENCY must be at most 4")
     if not 0 < settings["NOISE_FLOOR_SMOOTHING"] <= 1 or settings["STT_MAX_NO_SPEECH_PROB"] > 1:
         raise ValueError("Noise smoothing and no-speech probability must be within 0–1")
     return settings

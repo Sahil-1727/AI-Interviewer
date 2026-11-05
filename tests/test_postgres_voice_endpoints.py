@@ -27,6 +27,8 @@ from app.services.postgres_voice import PostgresVoiceJournal
 @unittest.skipUnless(os.getenv("TEST_DATABASE_URL"), "requires dedicated PostgreSQL database")
 class PostgreSQLVoiceEndpoints(unittest.TestCase):
     def setUp(self):
+        self.previous_testing = run.app.testing
+        run.app.testing = True
         self.client = run.app.test_client()
         with self.client.session_transaction() as session:
             session.clear()
@@ -35,6 +37,9 @@ class PostgreSQLVoiceEndpoints(unittest.TestCase):
                     {"question": "Explain Java", "skill": "Java", "type": "technical", "mock_follow_up": True},
                     {"question": "Explain a class", "skill": "Java", "type": "technical"}]},
                 current_question=0, interview_history=[])
+
+    def tearDown(self):
+        run.app.testing = self.previous_testing
 
     def wait(self):
         for _ in range(300):
@@ -190,7 +195,7 @@ class PostgreSQLVoiceEndpoints(unittest.TestCase):
             with self.client.session_transaction() as session:
                 identity = session['manual_interview_id']
             cookie = self.client.get_cookie('session')
-            worker_script = "import sys, run; c=run.app.test_client(); c.set_cookie('session', sys.stdin.read()); r=c.get('/api/conversation/transcript'); print(r.status_code)"
+            worker_script = "import sys, run; run.app.testing=True; c=run.app.test_client(); c.set_cookie('session', sys.stdin.read()); r=c.get('/api/conversation/transcript'); print(r.status_code)"
             worker = subprocess.run([sys.executable, '-c', worker_script], input=cookie.value, text=True, capture_output=True, timeout=20)
             self.assertEqual(worker.returncode, 0, worker.stderr)
             self.assertEqual(worker.stdout.strip(), '200')

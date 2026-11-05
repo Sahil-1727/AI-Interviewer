@@ -8,6 +8,7 @@ class DeepgramCapture {
         this.interim = '';
         this.lastWords = null;
         this.sawWords = false;
+        this.turnEndTimer = null;
         this.started = options.started || performance.now();
     }
 
@@ -24,6 +25,7 @@ class DeepgramCapture {
         this.pendingAudio = [];
         this.pendingBytes = 0;
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        this.connectionStartedAt = performance.now();
         this.socket = new WebSocket(`${protocol}//${location.host}/api/voice/stream`);
         this.socket.binaryType = 'arraybuffer';
         this.recorder.ondataavailable = event => {
@@ -54,6 +56,7 @@ class DeepgramCapture {
                 if (this.closing) return;
                 clearTimeout(this.timeout);
                 this.providerReady = true;
+                o.onTiming?.('deepgram_connect_ms', performance.now() - this.connectionStartedAt);
                 for (const audio of this.pendingAudio) this.socket.send(audio);
                 this.pendingAudio = [];
                 this.pendingBytes = 0;
@@ -67,16 +70,26 @@ class DeepgramCapture {
                 this.text = data.transcript;
                 this.interim = data.interim;
                 if (data.recognized) this.sawWords = true;
-                if (data.recognized && changed && !this.closing) {
+                if (data.recognized && !this.closing) {
+                    clearTimeout(this.turnEndTimer);
+                    this.turnEndTimer = null;
                     this.lastWords = performance.now();
-                    o.onState('listening', 'Listening. Natural pauses are welcome.');
+                    if (changed) o.onState('listening', 'Listening. Natural pauses are welcome.');
                 }
                 o.onTranscript(this.text, this.interim);
+                if (!this.closing && data.speech_final && this.sawWords) {
+                    this.scheduleUtteranceEnd(this.options.config.DEEPGRAM_UTTERANCE_END_MS
+                        + this.options.config.DEEPGRAM_FINAL_TURN_GRACE_SECONDS * 1000);
+                }
                 if (!this.closing && data.final && data.command_confident && /(?:^|[.!?]\s+)(?:i['’]m done|i am done|repeat the question|please repeat the question|can you repeat the question)[.!?\s]*$/i.test(this.text)) this.finish('command');
+            } else if (data.type === 'utterance_end') {
+                if (!this.closing && this.sawWords) this.scheduleUtteranceEnd();
             } else if (data.type === 'complete') {
                 if (!this.closing || typeof data.transcript !== 'string') return this.fail('Unexpected speech service response.');
                 this.cancelled = true;
                 clearTimeout(this.timeout);
+                o.onTiming?.('deepgram_finalize_ms', performance.now() - this.finishRequestedAt);
+                if (this.lastWords !== null) o.onTiming?.('deepgram_silence_to_final_ms', performance.now() - this.lastWords);
                 this.socket.close();
                 o.onComplete(data.transcript, this.reason, this.sawWords);
                 this.resolveFinished?.();
@@ -85,19 +98,31 @@ class DeepgramCapture {
         this.timeout = setTimeout(() => this.fail('Speech streaming timed out. Resume to retry.'), (o.config.DEEPGRAM_CONNECT_TIMEOUT_SECONDS + 5) * 1000);
     }
 
+    scheduleUtteranceEnd(delay = this.options.config.DEEPGRAM_FINAL_TURN_GRACE_SECONDS * 1000) {
+        clearTimeout(this.turnEndTimer);
+        this.turnEndTimer = setTimeout(() => {
+            this.turnEndTimer = null;
+            if (!this.closing && !this.cancelled && this.sawWords) this.finish('silence');
+        }, delay);
+    }
+
     tick() {
         if (this.closing || this.cancelled) return;
         const now = performance.now(), c = this.options.config;
+        const silenceFallback = c.DEEPGRAM_SILENCE_FALLBACK_SECONDS ?? c.END_OF_ANSWER_SILENCE_SECONDS;
         if (now - this.started >= c.MAX_CAPTURE_SECONDS * 1000) return this.fail('Recording limit reached. Resume to continue.');
         if (this.lastWords === null && now - this.started >= c.INITIAL_ANSWER_TIMEOUT_SECONDS * 1000) this.finish('unanswered');
-        else if (this.lastWords !== null && now - this.lastWords >= c.END_OF_ANSWER_SILENCE_SECONDS * 1000) this.finish('silence');
+        else if (this.lastWords !== null && now - this.lastWords >= silenceFallback * 1000) this.finish('silence');
     }
 
     finish(reason) {
         if (this.closing || this.cancelled) return;
         this.closing = true;
         this.reason = reason;
+        this.finishRequestedAt = performance.now();
         clearInterval(this.timer);
+        clearTimeout(this.turnEndTimer);
+        this.turnEndTimer = null;
         this.options.onState('transcribing', 'Finishing your transcript…');
         this.timeout = setTimeout(() => this.fail('Speech finalization timed out. Resume to retry.'), (this.options.config.DEEPGRAM_FINALIZE_TIMEOUT_SECONDS + 2) * 1000);
         if (this.recorder?.state === 'recording') this.recorder.stop();
@@ -121,6 +146,8 @@ class DeepgramCapture {
         this.cancelled = true;
         clearInterval(this.timer);
         clearTimeout(this.timeout);
+        clearTimeout(this.turnEndTimer);
+        this.turnEndTimer = null;
         if (this.recorder?.state === 'recording') this.recorder.stop();
         this.releaseMicrophone();
         if (this.socket && this.socket.readyState < WebSocket.CLOSING) this.socket.close();
