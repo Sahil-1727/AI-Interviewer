@@ -8,6 +8,7 @@
         <h1 id="account-title">Welcome <em>back.</em></h1>
         <p class="muted">Sign in to prepare for your next interview.</p>
         <p class="account-quota" role="note"><strong>Live interview availability:</strong> Voice interviews are subject to a shared monthly usage allowance. If the allowance is reached, voice interviews may be temporarily unavailable until it resets. You can still sign in or create an account.</p>
+        <p class="account-switch">Would you like to explore a demo? Visit our <a href="https://livekit-ai-interviewer.vercel.app/">demo website</a> and request access.</p>
         {% if error %}<p class="account-error" role="alert">{{ error }}</p>{% endif %}
         <form method="POST" action="{{ url_for('accounts.login') }}" data-submit-form>
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
