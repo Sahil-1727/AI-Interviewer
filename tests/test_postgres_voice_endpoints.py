@@ -62,7 +62,7 @@ class PostgreSQLVoiceEndpoints(unittest.TestCase):
             other = User(display_name='Other owner', password_hash='test-only')
             run.db.session.add_all([owner, other])
             run.db.session.flush()
-            own = Interview(owner_id=owner.id, job_description='private JD', plan={'questions': []}, status='completed')
+            own = Interview(owner_id=owner.id, job_description='Python 100% private JD', plan={'questions': []}, status='completed')
             hidden = Interview(owner_id=other.id, job_description='private JD', plan={'questions': []})
             run.db.session.add_all([own, hidden])
             run.db.session.flush()
@@ -76,6 +76,14 @@ class PostgreSQLVoiceEndpoints(unittest.TestCase):
         self.assertEqual(listing.status_code, 200)
         self.assertIn(own_id, listing.text)
         self.assertNotIn(other_id, listing.text)
+        for query in ('python', '%'):
+            result = self.client.get('/my-interviews', query_string={'q': query, 'status': 'report'})
+            self.assertEqual(result.status_code, 200)
+            self.assertIn(own_id, result.text)
+            self.assertNotIn(other_id, result.text)
+        self.assertNotIn(own_id, self.client.get('/my-interviews?status=pending').text)
+        self.assertEqual(self.client.get('/my-interviews?status=invalid').status_code, 400)
+
         for suffix in ('report', 'review', 'transcript'):
             self.assertEqual(self.client.get('/my-interviews/' + own_id + '/' + suffix).status_code, 200)
             self.assertEqual(self.client.get('/my-interviews/' + other_id + '/' + suffix).status_code, 404)

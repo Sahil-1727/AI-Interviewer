@@ -1,6 +1,6 @@
 """Read-only account history. Ownership is checked in every database query."""
 from flask import Blueprint, abort, g, jsonify, render_template, request
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import aliased, load_only
 
 from app.database import db
@@ -38,14 +38,29 @@ def index():
     if page < 1 or page > 10000:
         abort(400)
     account = owner_id()
-    rows = db.session.execute(select(Interview, Scorecard.id.label('report_id'))
+    query_text = request.args.get('q', '').strip()
+    status = request.args.get('status', 'all')
+    if len(query_text) > 160 or status not in {'all', 'report', 'pending', 'attention'}:
+        abort(400)
+    query = (select(Interview, Scorecard.id.label('report_id'))
         .options(load_only(Interview.id, Interview.created_at, Interview.status, Interview.plan))
         .outerjoin(Scorecard, Scorecard.interview_id == Interview.id)
-        .where(Interview.owner_id == account)
+        .where(Interview.owner_id == account))
+    if query_text:
+        query = query.where(or_(Interview.job_description.icontains(query_text, autoescape=True),
+            Interview.questions.any(Question.skill.icontains(query_text, autoescape=True))))
+    if status == 'report':
+        query = query.where(Scorecard.id.is_not(None))
+    elif status == 'pending':
+        query = query.where(Scorecard.id.is_(None))
+    elif status == 'attention':
+        query = query.where(Interview.status == 'error', Scorecard.id.is_(None))
+    rows = db.session.execute(query
         .order_by(Interview.created_at.desc(), Interview.id.desc())
         .offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE + 1)).all()
     return render_template('history.html', rows=rows[:PAGE_SIZE], page=page,
-                           has_next=len(rows) > PAGE_SIZE)
+                           has_next=len(rows) > PAGE_SIZE, query_text=query_text, status=status)
+
 
 
 @history_bp.get('/my-interviews/<identity>/report')

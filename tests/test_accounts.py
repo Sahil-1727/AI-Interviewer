@@ -158,6 +158,9 @@ class AccountTests(unittest.TestCase):
         db.session.commit()
         page = self.client.get('/my-interviews')
         self.assertIn('Next', page.text)
+        filtered = self.client.get('/my-interviews?q=JD&status=pending')
+        self.assertIn('q=JD', filtered.text)
+        self.assertIn('status=pending', filtered.text)
         self.assertEqual(page.text.count('Download transcript'), 20)
         self.assertEqual(self.client.get('/my-interviews?page=2').text.count('Download transcript'), 1)
         self.assertEqual(self.client.get('/my-interviews?page=0').status_code, 400)
@@ -186,6 +189,34 @@ class AccountTests(unittest.TestCase):
         self.assertIn('&lt;script&gt;', page.text)
         self.assertNotIn('<script>alert(1)</script>', page.text)
         self.assertEqual(self.client.get('/my-interviews/' + interview.id + '/review?page=0').status_code, 400)
+
+    def test_history_filters_are_literal_and_account_scoped(self):
+        self.signup()
+        owner = db.session.scalar(select(User).where(User.email == 'candidate@example.com'))
+        other = User(display_name='Other', password_hash='test-only')
+        db.session.add(other)
+        db.session.flush()
+        first = Interview(owner_id=owner.id, job_description='Finance with 100% coverage', plan={'questions': []}, status='error')
+        second = Interview(owner_id=owner.id, job_description='Java role', plan={'questions': []})
+        private = Interview(owner_id=other.id, job_description='Finance secret', plan={'questions': []})
+        db.session.add_all([first, second, private])
+        db.session.flush()
+        db.session.add(Question(interview_id=first.id, sequence=0, kind='technical', skill='Python', text='Explain lists.'))
+        db.session.add(Scorecard(interview_id=second.id, result={'insufficient_evidence': True}, completion_status='completed', early_ended=True))
+        db.session.commit()
+        for query in ('Finance', 'python', '%'):
+            page = self.client.get('/my-interviews', query_string={'q': query})
+            self.assertEqual(page.status_code, 200)
+            self.assertIn(first.id, page.text)
+            self.assertNotIn(second.id, page.text)
+            self.assertNotIn(private.id, page.text)
+        for status, shown, hidden in (('report', second.id, first.id), ('pending', first.id, second.id), ('attention', first.id, second.id)):
+            page = self.client.get('/my-interviews', query_string={'status': status})
+            self.assertIn(shown, page.text)
+            self.assertNotIn(hidden, page.text)
+        self.assertIn('No interviews match', self.client.get('/my-interviews?q=missing').text)
+        self.assertEqual(self.client.get('/my-interviews?status=invalid').status_code, 400)
+        self.assertEqual(self.client.get('/my-interviews', query_string={'q': 'a' * 161}).status_code, 400)
 
 
 if __name__ == '__main__':

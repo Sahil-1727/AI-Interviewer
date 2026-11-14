@@ -7,11 +7,21 @@
         <p class="muted">Revisit saved feedback and download your conversation transcripts.</p></div>
         <a class="button button-primary" href="{{ url_for('home') }}">Start an interview {{ icon('arrow') }}</a>
     </div>
+    <form class="history-filters" method="get" action="{{ url_for('history.index') }}" role="search" aria-label="Search your interviews">
+        <div class="field"><label for="history-search">Role or skill</label><input id="history-search" name="q" type="search" value="{{ query_text }}" maxlength="160" placeholder="For example, Python or Java"></div>
+        <div class="field"><label for="history-status">Report status</label><select id="history-status" name="status">
+            {% for value, label in [('all', 'All interviews'), ('report', 'Report available'), ('pending', 'No report yet'), ('attention', 'Needs attention')] %}
+            <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select></div>
+        <button type="submit" class="button button-primary">Find interviews</button>
+        {% if query_text or status != 'all' %}<a class="button button-text" href="{{ url_for('history.index') }}">Clear filters</a>{% endif %}
+    </form>
     {% if rows %}
     <ul class="history-list">
         {% for interview, report_id in rows %}
         <li class="history-card">
             <div><h2>Interview · {{ interview.created_at.strftime('%d %b %Y') }}</h2>
+                {% if (interview.plan or {}).get('required_skills') %}<p class="history-skills">{{ interview.plan.required_skills[:3]|join(' · ') }}</p>{% endif %}
                 <p class="muted"><time datetime="{{ interview.created_at.isoformat() }}">{{ interview.created_at.strftime('%H:%M') }} UTC</time>
                 · {{ (interview.plan or {}).get('questions', [])|length }} planned questions
                 · {% if report_id %}Report available{% elif interview.status == 'error' %}Processing needs attention{% elif interview.status in ['ending', 'scoring', 'evaluating'] %}Processing{% else %}Report not available yet{% endif %}</p>
@@ -25,12 +35,12 @@
         {% endfor %}
     </ul>
     <nav class="history-actions" aria-label="Interview history pages">
-        {% if page > 1 %}<a class="button button-secondary" href="{{ url_for('history.index', page=page-1) }}">Previous</a>{% endif %}
+        {% if page > 1 %}<a class="button button-secondary" href="{{ url_for('history.index', page=page-1, q=query_text, status=status) }}">Previous</a>{% endif %}
         <span class="muted">Page {{ page }}</span>
-        {% if has_next %}<a class="button button-secondary" href="{{ url_for('history.index', page=page+1) }}">Next</a>{% endif %}
+        {% if has_next %}<a class="button button-secondary" href="{{ url_for('history.index', page=page+1, q=query_text, status=status) }}">Next</a>{% endif %}
     </nav>
     {% else %}
-    <section class="history-card"><div><h2>Your next step starts here.</h2><p class="muted">No interviews on this page yet. Your saved interviews will appear here after you begin.</p>
+    <section class="history-card"><div><h2>Your next step starts here.</h2><p class="muted">{% if query_text or status != 'all' %}No interviews match these filters. Try another role, skill, or report status.{% else %}No interviews on this page yet. Your saved interviews will appear here after you begin.{% endif %}</p>
         {% if page > 1 %}<a href="{{ url_for('history.index') }}">Back to your latest interviews</a>{% endif %}</div></section>
     {% endif %}
 </main>
