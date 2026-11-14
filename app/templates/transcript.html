@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}Your conversation · AI Interviewer{% endblock %}
+{% block content %}
+<main id="main" class="page-width history-page">
+    <div class="report-heading">
+        <div><p class="eyebrow">YOUR SAVED CONVERSATION</p><h1>Read it <em>back.</em></h1>
+            <p class="muted">Saved words in conversation order. Times are shown in UTC.</p></div>
+        <a class="button button-secondary" href="{{ url_for('history.index') }}">Back to my interviews</a>
+    </div>
+    <div class="history-actions transcript-tools">
+        <a class="button button-secondary" href="{{ url_for('history.transcript', identity=interview.id, format='text') }}">Download text</a>
+        <a class="button button-secondary" href="{{ url_for('history.transcript', identity=interview.id) }}">Download JSON</a>
+        <button type="button" class="button button-text" id="print-report">Print this page</button>
+    </div>
+    <form class="history-filters" method="get" role="search" aria-label="Search this transcript">
+        <div class="field"><label for="transcript-search">Find a word or phrase</label><input type="search" id="transcript-search" name="q" maxlength="160" value="{{ query_text }}" placeholder="Search your conversation"></div>
+        <button type="submit" class="button button-primary">Search transcript</button>
+        {% if query_text %}<a class="button button-text" href="{{ url_for('history.conversation', identity=interview.id) }}">Clear search</a>{% endif %}
+    </form>
+    {% if query_text %}<p class="muted">Showing messages matching “{{ query_text }}”. Clear search to see the full conversation.</p>{% endif %}
+    {% for message in messages %}
+    <article class="transcript-message" aria-labelledby="message-{{ message.sequence }}">
+        <div class="transcript-message-heading"><h2 id="message-{{ message.sequence }}">{{ message_label(message.kind) }}</h2><time datetime="{{ message.created_at.isoformat() }}">{{ message.created_at.strftime('%d %b %Y · %H:%M:%S') }} UTC</time></div>
+        <p>{{ message.text or 'No spoken response was saved for this event.' }}</p>
+    </article>
+    {% else %}<section class="history-card"><p>{% if query_text %}No messages match this search.{% else %}No messages have been saved on this page yet.{% endif %}</p></section>{% endfor %}
+    <p class="muted">Page {{ page }} · Print includes only the messages displayed on this page. Downloads include the complete saved transcript.</p>
+    <nav class="history-actions transcript-tools" aria-label="Transcript pages">
+        {% if page > 1 %}<a class="button button-secondary" href="{{ url_for('history.conversation', identity=interview.id, page=page-1, q=query_text) }}">Previous</a>{% endif %}
+        {% if has_next %}<a class="button button-secondary" href="{{ url_for('history.conversation', identity=interview.id, page=page+1, q=query_text) }}">Next</a>{% endif %}
+    </nav>
+</main>
+{% endblock %}

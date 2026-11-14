@@ -154,3 +154,11 @@ h1 em { font-style: italic; }
 .history-filters input, .history-filters select { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid var(--input-line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
 .history-filters input:focus-visible, .history-filters select:focus-visible { outline: 3px solid var(--copper); outline-offset: 3px; }
 .history-skills { color: var(--copper-dark); font-size: 13px; margin-bottom: 8px; }
+
+.transcript-tools { margin: 20px 0; }
+.transcript-message { padding: 24px; margin: 18px 0; border: 1px solid var(--line); border-left: 3px solid var(--copper); border-radius: 8px; background: var(--surface); break-inside: avoid; }
+.transcript-message-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+.transcript-message h2 { font: 650 15px var(--sans); letter-spacing: 0; }
+.transcript-message time { color: var(--muted); font-size: 12px; }
+.transcript-message p { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media print { .transcript-tools, .history-filters { display: none; } }

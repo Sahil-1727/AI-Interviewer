@@ -1,5 +1,5 @@
 """Read-only account history. Ownership is checked in every database query."""
-from flask import Blueprint, abort, g, jsonify, render_template, request
+from flask import Blueprint, Response, abort, g, jsonify, render_template, request
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import aliased, load_only
 
@@ -84,9 +84,20 @@ def report(identity):
 @history_bp.get('/my-interviews/<identity>/transcript')
 def transcript(identity):
     interview = owned_interview(identity)
+    export_format = request.args.get('format', 'json')
+    if export_format not in {'json', 'text'}:
+        abort(400)
     messages = db.session.scalars(select(ConversationMessage)
         .where(ConversationMessage.interview_id == interview.id)
         .order_by(ConversationMessage.sequence)).all()
+    if export_format == 'text':
+        body = 'Saved interview transcript\nTimes shown in UTC.\n\n' + '\n\n'.join(
+            f"[{item.created_at.isoformat()}] {message_label(item.kind)}\n{item.text}"
+            for item in messages)
+        response = Response(body, content_type='text/plain; charset=utf-8')
+        response.headers['Content-Disposition'] = 'attachment; filename="interview-transcript.txt"'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        return response
     response = jsonify(interview_id=interview.id, messages=[{
         'sequence': item.sequence, 'kind': item.kind, 'text': item.text,
         'created_at': item.created_at.isoformat(),
@@ -112,3 +123,30 @@ def review(identity):
         .offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE + 1)).all()
     return render_template('review.html', interview=interview, rows=rows[:PAGE_SIZE],
                            page=page, has_next=len(rows) > PAGE_SIZE)
+
+
+MESSAGE_LABELS = {
+    'question': 'Interviewer', 'follow_up': 'Interviewer · Follow-up',
+    'assistant': 'Interviewer', 'user': 'Candidate', 'answered': 'Candidate',
+    'unanswered': 'Unanswered', 'skipped': 'Skipped', 'completion': 'Interview completed',
+}
+
+
+def message_label(kind):
+    return MESSAGE_LABELS.get(kind, 'Interview event')
+
+
+@history_bp.get('/my-interviews/<identity>/conversation')
+def conversation(identity):
+    interview = owned_interview(identity)
+    page = request.args.get('page', default=1, type=int)
+    query_text = request.args.get('q', '').strip()
+    if not 1 <= page <= 10000 or len(query_text) > 160:
+        abort(400)
+    query = select(ConversationMessage).where(ConversationMessage.interview_id == interview.id)
+    if query_text:
+        query = query.where(ConversationMessage.text.icontains(query_text, autoescape=True))
+    messages = db.session.scalars(query.order_by(ConversationMessage.sequence)
+        .offset((page - 1) * 40).limit(41)).all()
+    return render_template('transcript.html', interview=interview, messages=messages[:40],
+        query_text=query_text, page=page, has_next=len(messages) > 40, message_label=message_label)

@@ -235,3 +235,10 @@ response, and existing evaluation (including follow-ups). Unanswered, skipped,
 and unevaluated answers are labeled separately. Reviews are paginated, account
 scoped, and reuse persisted feedback without another AI call. Candidate text is
 HTML-escaped. This requires no schema changes or additional provider credits.
+
+**Read transcript** opens a paginated conversation viewer with word/phrase search,
+message labels, UTC timestamps and page printing. Download the full saved transcript
+as JSON or plain text from the viewer. Search and print operate on the selected
+view; downloads always contain the full saved transcript. All transcript routes
+verify account ownership and use existing persisted messages, with no AI calls or
+new database migration.

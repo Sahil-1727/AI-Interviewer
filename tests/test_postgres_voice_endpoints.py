@@ -68,6 +68,7 @@ class PostgreSQLVoiceEndpoints(unittest.TestCase):
             run.db.session.flush()
             run.db.session.add(Scorecard(interview_id=own.id, result={'insufficient_evidence': True}, completion_status='completed', early_ended=True))
             run.db.session.add(Question(interview_id=own.id, sequence=0, kind='technical', skill='Python', text='Explain a list.'))
+            run.db.session.add(ConversationMessage(interview_id=own.id, sequence=0, kind='question', text='100% PostgreSQL transcript'))
             run.db.session.commit()
             owner_id, own_id, other_id = owner.id, own.id, hidden.id
         with self.client.session_transaction() as data:
@@ -84,10 +85,16 @@ class PostgreSQLVoiceEndpoints(unittest.TestCase):
         self.assertNotIn(own_id, self.client.get('/my-interviews?status=pending').text)
         self.assertEqual(self.client.get('/my-interviews?status=invalid').status_code, 400)
 
-        for suffix in ('report', 'review', 'transcript'):
+        for suffix in ('report', 'review', 'transcript', 'conversation'):
             self.assertEqual(self.client.get('/my-interviews/' + own_id + '/' + suffix).status_code, 200)
             self.assertEqual(self.client.get('/my-interviews/' + other_id + '/' + suffix).status_code, 404)
         self.assertIn('Explain a list.', self.client.get('/my-interviews/' + own_id + '/review').text)
+        transcript = self.client.get('/my-interviews/' + own_id + '/conversation', query_string={'q': '%'})
+        self.assertEqual(transcript.status_code, 200)
+        self.assertIn('100% PostgreSQL transcript', transcript.text)
+        self.assertIn('100% PostgreSQL transcript', self.client.get('/my-interviews/' + own_id + '/transcript?format=text').text)
+        self.assertEqual(self.client.get('/my-interviews/' + other_id + '/transcript?format=text').status_code, 404)
+
         error = OperationalError('private connection details', None, Exception('secret'))
         with patch('app.routes.history.db.session.execute', side_effect=error):
             response = self.client.get('/my-interviews')

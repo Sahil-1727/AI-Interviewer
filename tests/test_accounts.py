@@ -146,7 +146,7 @@ class AccountTests(unittest.TestCase):
         export = self.client.get('/my-interviews/' + first.id + '/transcript')
         self.assertEqual(export.json['messages'][0]['text'], 'Explain lists.')
         self.assertIn('attachment', export.headers['Content-Disposition'])
-        for suffix in ('report', 'transcript', 'review'):
+        for suffix in ('report', 'transcript', 'review', 'conversation'):
             self.assertEqual(self.client.get('/my-interviews/' + private.id + '/' + suffix).status_code, 404)
             self.assertEqual(self.client.get('/my-interviews/missing/' + suffix).status_code, 404)
 
@@ -217,6 +217,39 @@ class AccountTests(unittest.TestCase):
         self.assertIn('No interviews match', self.client.get('/my-interviews?q=missing').text)
         self.assertEqual(self.client.get('/my-interviews?status=invalid').status_code, 400)
         self.assertEqual(self.client.get('/my-interviews', query_string={'q': 'a' * 161}).status_code, 400)
+
+    def test_readable_transcript_search_export_and_pagination(self):
+        self.signup()
+        owner = db.session.scalar(select(User).where(User.email == 'candidate@example.com'))
+        interview = Interview(owner_id=owner.id, job_description='JD', plan={'questions': []})
+        db.session.add(interview)
+        db.session.flush()
+        for sequence in range(41):
+            db.session.add(ConversationMessage(interview_id=interview.id, sequence=sequence,
+                kind='question' if sequence == 0 else 'answered',
+                text='<script>100% saved</script>' if sequence == 0 else f'Message {sequence}'))
+        db.session.commit()
+        base = '/my-interviews/' + interview.id
+        page = self.client.get(base + '/conversation')
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.text.count('class="transcript-message"'), 40)
+        self.assertIn('&lt;script&gt;', page.text)
+        self.assertNotIn('<script>100% saved</script>', page.text)
+        self.assertIn('Next', page.text)
+        self.assertEqual(self.client.get(base + '/conversation?page=2').text.count('class="transcript-message"'), 1)
+        searched = self.client.get(base + '/conversation', query_string={'q': '%'})
+        self.assertEqual(searched.text.count('class="transcript-message"'), 1)
+        self.assertIn('No messages match', self.client.get(base + '/conversation?q=missing').text)
+        self.assertEqual(self.client.get(base + '/conversation?page=0').status_code, 400)
+        self.assertEqual(self.client.get(base + '/conversation', query_string={'q': 'x'*161}).status_code, 400)
+        exported = self.client.get(base + '/transcript?format=text')
+        self.assertEqual(exported.mimetype, 'text/plain')
+        self.assertEqual(exported.headers['X-Content-Type-Options'], 'nosniff')
+        self.assertEqual(exported.headers['Cache-Control'], 'no-store')
+        self.assertIn('Message 40', exported.text)
+        self.assertIn('interview-transcript.txt', exported.headers['Content-Disposition'])
+        self.assertEqual(len(self.client.get(base + '/transcript').json['messages']), 41)
+        self.assertEqual(self.client.get(base + '/transcript?format=invalid').status_code, 400)
 
 
 if __name__ == '__main__':

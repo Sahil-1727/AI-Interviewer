@@ -29,6 +29,7 @@
             <div class="history-actions">
                 <a class="button button-secondary" href="{{ url_for('history.review', identity=interview.id) }}">Review answers</a>
                 {% if report_id %}<a class="button button-secondary" href="{{ url_for('history.report', identity=interview.id) }}">View report</a>{% endif %}
+                <a class="button button-text" href="{{ url_for('history.conversation', identity=interview.id) }}">Read transcript</a>
                 <a class="button button-text" href="{{ url_for('history.transcript', identity=interview.id) }}">Download transcript</a>
             </div>
         </li>

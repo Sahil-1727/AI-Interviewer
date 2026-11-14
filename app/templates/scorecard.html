@@ -16,6 +16,7 @@
             {% endif %}
         </div>
         {% if historical_interview_id %}
+        <a class="button button-secondary" href="{{ url_for('history.conversation', identity=historical_interview_id) }}">Read transcript</a>
         <a class="button button-secondary" href="{{ url_for('history.review', identity=historical_interview_id) }}">Review answers</a>
         <a class="button button-secondary" href="{{ url_for('history.transcript', identity=historical_interview_id) }}">Download transcript</a>
         {% endif %}
