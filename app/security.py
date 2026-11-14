@@ -1,12 +1,10 @@
 """Browser CSRF validation and PostgreSQL-backed request limits."""
-import hashlib
 import hmac
 import os
 import secrets
-import time
 
 from flask import jsonify, request, session
-from sqlalchemy import text
+from app.services.request_limits import consume
 
 
 def csrf_token():
@@ -27,43 +25,42 @@ def init_security(app):
 
     @app.before_request
     def protect_state_changes():
-        # Worker calls are authenticated by a constant-time shared-secret
-        # check plus a short-lived signed room/interview ticket in the route.
-        # They have no browser session and therefore cannot provide CSRF.
-        if request.path.startswith('/api/conversation/livekit/agent/'):
-            return None
+        worker = request.path.startswith('/api/conversation/livekit/agent/')
         streaming = request.path == '/api/voice/stream' and request.method == 'GET'
-        if request.method not in {'POST', 'PUT', 'PATCH', 'DELETE'} and not streaming:
+        polling = request.path == '/api/conversation' and request.method == 'GET'
+        if request.method not in {'POST', 'PUT', 'PATCH', 'DELETE'} and not streaming and not polling:
             return None
         if app.config['RATE_LIMIT_ENABLED'] and os.getenv('DATABASE_URL'):
             from app.database import db
             path = request.path
-            if path in {'/login', '/signup'}:
-                limit = int(os.getenv('RATE_LIMIT_AUTH_PER_MINUTE', '12'))
-                category = 'auth'
+            if worker:
+                category, setting, default = 'worker', 'RATE_LIMIT_WORKER_PER_MINUTE', '600'
+            elif path in {'/login', '/signup'}:
+                category, setting, default = 'auth', 'RATE_LIMIT_AUTH_PER_MINUTE', '12'
+            elif polling:
+                category, setting, default = 'read', 'RATE_LIMIT_READ_PER_MINUTE', '120'
+            elif path in {'/api/transcribe', '/api/synthesize', '/api/voice/stream'}:
+                category, setting, default = 'audio', 'RATE_LIMIT_AUDIO_PER_MINUTE', '30'
             else:
-                limit = int(os.getenv('RATE_LIMIT_AUDIO_PER_MINUTE', '30') if path in {'/api/transcribe', '/api/synthesize', '/api/voice/stream'}
-                            else os.getenv('RATE_LIMIT_INTERVIEW_PER_MINUTE', '60'))
-                category = 'audio' if path in {'/api/transcribe', '/api/synthesize', '/api/voice/stream'} else 'interview'
-            if limit < 1:
-                raise ValueError('Rate limit must be positive.')
-            bucket = int(time.time()) // 60
-            key = hashlib.sha256((request.remote_addr or 'unknown').encode()).hexdigest()
+                category, setting, default = 'interview', 'RATE_LIMIT_INTERVIEW_PER_MINUTE', '60'
+            checks = [('ip:' + (request.remote_addr or 'unknown'), category, int(os.getenv(setting, default)))]
+            if not worker and session.get('account_id'):
+                checks.append(('account:' + str(session['account_id']), category, int(os.getenv(setting, default))))
             try:
-                with db.engine.begin() as connection:
-                    count = connection.execute(text('''INSERT INTO request_limits (client_hash, category, bucket, count)
-                        VALUES (:client, :category, :bucket, 1)
-                        ON CONFLICT (client_hash, category, bucket)
-                        DO UPDATE SET count = request_limits.count + 1 RETURNING count'''),
-                        {'client': key, 'category': category, 'bucket': bucket}).scalar_one()
-                if count > limit:
-                    response = jsonify(error='Too many requests. Please try again shortly.')
-                    response.status_code = 429
-                    response.headers['Retry-After'] = str(60 - int(time.time()) % 60)
-                    return response
+                for identity, category, limit in checks:
+                    allowed, retry = consume(db.engine, identity, category, limit)
+                    if not allowed:
+                        response = jsonify(error='Too many requests. Please try again shortly.')
+                        response.status_code = 429
+                        response.headers['Retry-After'] = str(retry)
+                        response.headers['Cache-Control'] = 'no-store'
+                        return response
             except Exception:
                 return jsonify(error='Service temporarily unavailable.'), 503
-        if app.config['CSRF_ENABLED'] and not streaming:
+        # Worker endpoints verify their shared secret and signed interview ticket.
+        if worker:
+            return None
+        if app.config['CSRF_ENABLED'] and request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
             expected = session.get('_csrf_token')
             supplied = request.headers.get('X-CSRF-Token') or request.form.get('csrf_token')
             if not isinstance(expected, str) or not isinstance(supplied, str) or not hmac.compare_digest(expected, supplied):

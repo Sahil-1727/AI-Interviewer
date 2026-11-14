@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 import unittest
+from uuid import uuid4
 from urllib.request import Request, urlopen
 
 
@@ -18,7 +19,7 @@ class GunicornSessionTests(unittest.TestCase):
             port = sock.getsockname()[1]
         env = dict(os.environ, PYTHONPATH='tests:.', RATE_LIMIT_ENABLED='0')
         gunicorn = os.path.join(os.path.dirname(sys.executable), 'gunicorn')
-        proc = subprocess.Popen([gunicorn, '--workers', '2', '--threads', '1', '--bind', f'127.0.0.1:{port}', 'gunicorn_fixture:app'],
+        proc = subprocess.Popen([gunicorn, '--workers', '2', '--worker-class', 'sync', '--threads', '1', '--bind', f'127.0.0.1:{port}', 'gunicorn_fixture:app'],
                                 env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         base = f'http://127.0.0.1:{port}'
         try:
@@ -41,6 +42,11 @@ class GunicornSessionTests(unittest.TestCase):
             self.assertEqual(len({item['pid'] for item in results}), 2)
             state = fetch('/__test/session/state')
             self.assertEqual((state['first'], state['second']), ('first', 'second'))
+            identity = uuid4().hex
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                admissions = list(pool.map(lambda _: fetch('/__test/rate/' + identity), range(20)))
+            self.assertEqual(sum(item['allowed'] for item in admissions), 5)
+
         finally:
             proc.terminate()
             try:

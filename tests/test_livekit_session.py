@@ -66,7 +66,7 @@ class LiveKitSessionTests(unittest.TestCase):
     def test_no_session_or_ended_interview_cannot_join(self):
         self.assertEqual(self.client.post('/api/conversation/livekit/session').status_code, 404)
         self.own_session()
-        self.service.get.return_value = {'status': 'completed'}
+        self.saved_state['status'] = 'completed'
         self.assertEqual(self.client.post('/api/conversation/livekit/session').status_code, 409)
 
     def test_disabled_and_missing_configuration_fail_closed(self):

@@ -34,6 +34,14 @@ app = Flask(
     template_folder="app/templates",
     static_folder="app/static"
 )
+# Only trust forwarding headers when the host's proxy boundary is configured.
+proxy_hops = int(os.getenv('TRUSTED_PROXY_HOPS', '0'))
+if proxy_hops < 0:
+    raise RuntimeError('TRUSTED_PROXY_HOPS must be nonnegative.')
+if proxy_hops:
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=proxy_hops, x_proto=proxy_hops,
+                            x_host=0, x_port=0, x_prefix=0)
 # Import LiveKit's token SDK during startup so the first candidate click does
 # not pay its import cost. The agent itself runs in the separate worker.
 livekit_enabled = os.getenv('LIVEKIT_ENABLED', '0').strip() == '1'
@@ -134,6 +142,8 @@ def check_session_storage():
 from app.security import init_security
 init_security(app)
 protect_accounts(app)
+from app.capacity import init_capacity
+init_capacity(app)
 
 
 @app.get('/health/ready')

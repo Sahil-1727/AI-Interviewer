@@ -217,3 +217,5 @@ requirements-production.txt     Lightweight Deepgram deployment dependencies
 Some older historical material in [the voice guide](docs/realtime-voice.md)
 describes earlier branch behavior; use the provider and deployment sections above
 for the current `feature/free-deployment` configuration.
+
+See [Scaling and request capacity](docs/scaling-and-capacity.md) for shared rate limits, concurrency controls, connection budgets, and multi-worker settings.
