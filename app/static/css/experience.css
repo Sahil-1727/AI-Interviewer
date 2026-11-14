@@ -1,0 +1,145 @@
+/* Workspace design layer. Keep functional selectors and visibility rules intact. */
+:root {
+    --paper: #f3f6fb;
+    --surface: #fff;
+    --ink: #17243c;
+    --muted: #54647b;
+    --line: #dce4ef;
+    --input-line: #a5b4c8;
+    --copper: #305bd6;
+    --copper-dark: #2344a5;
+    --tint: #edf2ff;
+    --charcoal: #17243c;
+    --serif: var(--sans);
+}
+body { background: var(--paper); line-height: 1.65; }
+h1, h2, h3 { letter-spacing: -.035em; }
+h1 em, h2 em { color: var(--copper); font-style: normal; }
+.page-width { width: min(1280px, calc(100% - 64px)); }
+.site-header { background: var(--surface); border-bottom: 1px solid var(--line); padding-top: 20px; padding-bottom: 20px; gap: 20px; }
+.brand { letter-spacing: -.04em; font-weight: 750; }
+.brand-mark { background: var(--tint); border-radius: 10px; }
+.header-actions { gap: 16px; }
+.header-note { font-size: 12px; }
+.journey { gap: 12px; }
+.journey-line { max-width: 32px; }
+.journey .is-current { color: var(--copper); }
+.eyebrow { font-weight: 700; letter-spacing: .13em; }
+.button { border-radius: 10px; min-height: 44px; font-weight: 650; transition: background .15s, box-shadow .15s; }
+.button-primary { background: var(--copper); color: white; box-shadow: 0 4px 12px #305bd61a; }
+.button-primary:hover:not(:disabled) { background: var(--copper-dark); box-shadow: 0 6px 18px #305bd629; }
+.button-secondary { background: var(--surface); border-color: var(--line); }
+.button-secondary:hover:not(:disabled) { background: var(--tint); border-color: #b9c9f7; }
+.button-text { color: var(--copper-dark); }
+:focus-visible { outline: 3px solid #466be0; outline-offset: 4px; }
+.field label { font-weight: 650; color: var(--ink); }
+.field input, .field textarea, .account-card .field input { background: #fbfcff; border-radius: 10px; border: 1px solid var(--input-line); min-height: 48px; }
+.field input:focus, .field textarea:focus { background: #fff; border-color: var(--copper); }
+.field textarea { resize: vertical; line-height: 1.7; }
+.field-help { font-size: 12px; line-height: 1.6; }
+.setup-layout { gap: 56px; align-items: start; padding-top: 48px; padding-bottom: 64px; }
+.setup-intro { padding: 42px; border-radius: 24px; background: #172c50; color: #fff; }
+.setup-intro h1 { font-size: clamp(36px, 4.5vw, 58px); line-height: 1.12; font-weight: 650; margin-top: 24px; }
+.setup-intro h1 em { color: #a9c4ff; }
+.setup-intro .intro-copy { color: #d0dcf0; font-size: 16px; margin-top: 24px; }
+.setup-intro .eyebrow { color: #b9d0ff; }
+.setup-intro .small-rule { background: #a9c4ff; }
+.process-list { margin-top: 36px; }
+.process-list li { border-color: #ffffff26; padding: 22px 0; }
+.process-list h2 { color: #fff; font-size: 18px; font-weight: 600; }
+.process-list p { color: #d0dcf0; font-size: 14px; }
+.setup-intro .step-number { color: #b9d0ff; }
+.intro-footnote { color: #d0dcf0; border-color: #ffffff26; }
+.intro-footnote strong { color: #fff; }
+.setup-panel { border: 1px solid var(--line); border-radius: 20px; padding: 32px; background: var(--surface); box-shadow: 0 12px 36px #17243c08; }
+.setup-panel h2 { font-size: 30px; font-weight: 650; }
+.upload-area { border-radius: 12px; border-color: var(--input-line); background: #f8faff; }
+.upload-area:hover, .upload-area.is-dragging { background: var(--tint); border-color: var(--copper); }
+.account-quota { padding: 12px 14px; border-radius: 10px; background: var(--tint); color: #29467f; font-size: 13px; }
+.account-card { width: min(100%, 520px); border-radius: 22px; box-shadow: 0 16px 56px #17243c0a; }
+.account-card h1 { font-weight: 650; font-size: clamp(32px, 4vw, 44px); line-height: 1.15; }
+.account-switch { line-height: 1.7; }
+.account-error { border-radius: 8px; background: #fff3f0; border-color: #b64834; color: #843728; }
+.submit-status { border-radius: 10px; background: var(--tint); color: #29467f; }
+.workspace { padding-top: 32px; }
+.workspace-heading h1 { font-size: clamp(28px, 3.5vw, 42px); font-weight: 650; line-height: 1.2; }
+.workspace-heading { margin-bottom: 28px; }
+.candidate-chip { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; }
+.candidate-initial { background: var(--tint); color: var(--copper-dark); }
+.question-panel, .answer-panel, .sidebar-card { border-radius: 16px; border-color: var(--line); box-shadow: 0 4px 20px #17243c05; }
+.interviewer-band { background: #f8faff; border-bottom-color: var(--line); padding: 20px 24px; }
+.interviewer-identity strong { font-size: 15px; font-weight: 650; }
+.question-content { padding: 28px; }
+.question-content h2 { font-size: clamp(23px, 2.5vw, 32px); line-height: 1.45; font-weight: 550; }
+.question-bottom { padding: 16px 24px; }
+.camera-frame { border-radius: 12px; background: #172c50; }
+.camera-privacy { font-size: 12px; line-height: 1.65; }
+.recording-controls { gap: 10px; flex-wrap: wrap; }
+#end-interview { color: #9f3328; border-color: #edc8c4; }
+#end-interview:hover:not(:disabled) { background: #fff3f0; }
+#conversation-status, #readiness-status { line-height: 1.65; }
+#interview-instructions { max-width: 850px; width: calc(100% - 32px); border: 1px solid var(--line); border-radius: 20px; padding: 28px; box-shadow: 0 24px 100px #17243c3d; }
+dialog::backdrop { background: #0c1d3b85; backdrop-filter: blur(4px); }
+#interview-instructions h2 { font-size: 30px; font-weight: 650; }
+#interview-instructions h3 { font-weight: 650; }
+#interview-instructions ul { line-height: 1.8; }
+#interview-instructions section { margin: 20px 0; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: #f8faff; }
+.instruction-acknowledgment { padding: 16px; border: 1px solid var(--line); border-radius: 10px; }
+.report-heading h1 { font-size: clamp(32px, 4vw, 48px); font-weight: 650; }
+.performance-overview { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 28px; }
+.overall-summary h2 { font-weight: 650; }
+.competency, .insight-section { border-color: var(--line); }
+progress { accent-color: var(--copper); }
+.history-card { border-radius: 16px; box-shadow: 0 4px 20px #17243c05; }
+.history-card h2 { font-weight: 650; }
+.history-actions .button { white-space: normal; }
+.site-footer { color: var(--muted); border-color: var(--line); }
+@media (max-width: 1000px) {
+    .site-header { flex-wrap: wrap; }
+    .journey { order: 3; width: 100%; justify-content: center; }
+    .setup-layout { gap: 28px; }
+    .setup-intro { padding: 28px; }
+    .setup-panel { padding: 24px; }
+}
+@media (max-width: 640px) {
+    .page-width { width: calc(100% - 32px); }
+    .site-header { padding: 16px; }
+    .header-actions { gap: 8px; }
+    .header-actions .header-note { display: none; }
+    .header-actions .button { padding: 8px; font-size: 12px; }
+    .setup-layout { padding-top: 24px; }
+    .setup-intro { padding: 24px; border-radius: 16px; }
+    .setup-intro h1 { font-size: 36px; }
+    .setup-panel { padding: 22px; }
+    .workspace-heading { gap: 16px; flex-wrap: wrap; }
+    .question-content { padding: 22px; }
+    .report-heading { align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+    .performance-overview { padding: 22px; }
+    .account-card { padding: 26px; }
+    #interview-instructions { padding: 20px; max-height: 90dvh; }
+}
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+@media print {
+    body { background: #fff; }
+    .site-header, .header-actions { display: none; }
+    .performance-overview { box-shadow: none; }
+    .report { width: 100%; }
+}
+
+#interview-instructions { padding: 0; }
+#interview-instructions .instruction-content { padding: 28px; }
+@media (max-width: 640px) { #interview-instructions .instruction-content { padding: 20px; } }
+
+.answer-review { margin: 20px 0; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); overflow: hidden; }
+.answer-review summary { cursor: pointer; padding: 24px; }
+.answer-review summary:focus-visible { outline-offset: -4px; }
+.review-question { display: block; font-size: 21px; font-weight: 600; line-height: 1.5; margin: 12px 0; }
+.review-status { color: var(--muted); font-size: 13px; }
+.review-content { padding: 24px; border-top: 1px solid var(--line); }
+.review-content h2 { font-size: 18px; font-weight: 650; margin-bottom: 12px; }
+.review-content h2:not(:first-child), .review-content h3 { margin-top: 24px; }
+.review-content h3 { font-size: 15px; font-weight: 650; }
+.review-transcript { white-space: pre-wrap; overflow-wrap: anywhere; background: #f8faff; padding: 16px; border-radius: 10px; margin-bottom: 20px; }
+@media print { .answer-review .review-content { display: block !important; } .answer-review { break-inside: avoid; } }

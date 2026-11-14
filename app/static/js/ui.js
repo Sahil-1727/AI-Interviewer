@@ -1,7 +1,8 @@
 document.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll("[data-submit-form]").forEach(form => {
         const buttons = Array.from(form.querySelectorAll("button"));
-        const initialDisabled = buttons.map(button => button.disabled);
+        let initialDisabled = buttons.map(button => button.disabled);
+        const submitStatus = form.querySelector(".submit-status");
 
         // A cached Back navigation must not leave the new submission lock active.
         window.addEventListener("pageshow", event => {
@@ -12,7 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 button.disabled = initialDisabled[index];
                 button.removeAttribute("aria-busy");
             });
-            form.querySelector(".submit-status").hidden = true;
+            if (submitStatus) submitStatus.hidden = true;
         });
 
         form.addEventListener("submit", event => {
@@ -29,16 +30,29 @@ document.addEventListener("DOMContentLoaded", () => {
                     return;
                 }
             }
+            initialDisabled = buttons.map(button => button.disabled);
             form.dataset.submitting = "true";
             form.classList.add("is-submitting");
             // Keep the live loading message outside an aria-busy subtree.
             form.querySelector('[type="submit"]').setAttribute("aria-busy", "true");
             // Leave named inputs enabled so their values are included in the POST.
             form.querySelectorAll("button").forEach(button => { button.disabled = true; });
-            form.querySelector(".submit-status").hidden = false;
+            if (submitStatus) submitStatus.hidden = false;
         });
         form.querySelectorAll("input[type=text], textarea").forEach(field => {
             field.addEventListener("input", () => field.setCustomValidity(""));
+        });
+    });
+
+    document.querySelectorAll("[data-password-toggle]").forEach(button => {
+        const input = document.getElementById(button.getAttribute("aria-controls"));
+        if (!input) return;
+        button.hidden = false;
+        button.addEventListener("click", () => {
+            const visible = input.type === "password";
+            input.type = visible ? "text" : "password";
+            button.setAttribute("aria-pressed", String(visible));
+            button.textContent = visible ? "Hide password" : "Show password";
         });
     });
 

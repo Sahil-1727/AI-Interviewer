@@ -47,7 +47,7 @@ Fixed windows can allow a burst on either side of a minute boundary.
 | RATE_LIMIT_AUTH_PER_MINUTE | 12 | Login/signup per IP |
 | RATE_LIMIT_AUDIO_PER_MINUTE | 30 | Audio requests per IP and signed-in account |
 | RATE_LIMIT_INTERVIEW_PER_MINUTE | 60 | Other browser mutations per IP and account |
-| RATE_LIMIT_READ_PER_MINUTE | 120 | Conversation status polling per IP and account |
+| RATE_LIMIT_READ_PER_MINUTE | 120 | Status polling and interview history per IP and account |
 | RATE_LIMIT_WORKER_PER_MINUTE | 600 | Agent callbacks per source IP |
 | RATE_LIMIT_PROVIDER_GLOBAL_PER_MINUTE | 30 | Expensive synchronous POSTs across the whole deployment |
 

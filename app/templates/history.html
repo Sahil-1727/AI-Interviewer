@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block title %}My interviews · AI Interviewer{% endblock %}
+{% block content %}
+<main id="main" class="page-width history-page">
+    <div class="report-heading">
+        <div><p class="eyebrow">YOUR PRACTICE JOURNEY</p><h1>Your interview <em>history.</em></h1>
+        <p class="muted">Revisit saved feedback and download your conversation transcripts.</p></div>
+        <a class="button button-primary" href="{{ url_for('home') }}">Start an interview {{ icon('arrow') }}</a>
+    </div>
+    {% if rows %}
+    <ul class="history-list">
+        {% for interview, report_id in rows %}
+        <li class="history-card">
+            <div><h2>Interview · {{ interview.created_at.strftime('%d %b %Y') }}</h2>
+                <p class="muted"><time datetime="{{ interview.created_at.isoformat() }}">{{ interview.created_at.strftime('%H:%M') }} UTC</time>
+                · {{ (interview.plan or {}).get('questions', [])|length }} planned questions
+                · {% if report_id %}Report available{% elif interview.status == 'error' %}Processing needs attention{% elif interview.status in ['ending', 'scoring', 'evaluating'] %}Processing{% else %}Report not available yet{% endif %}</p>
+            </div>
+            <div class="history-actions">
+                <a class="button button-secondary" href="{{ url_for('history.review', identity=interview.id) }}">Review answers</a>
+                {% if report_id %}<a class="button button-secondary" href="{{ url_for('history.report', identity=interview.id) }}">View report</a>{% endif %}
+                <a class="button button-text" href="{{ url_for('history.transcript', identity=interview.id) }}">Download transcript</a>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+    <nav class="history-actions" aria-label="Interview history pages">
+        {% if page > 1 %}<a class="button button-secondary" href="{{ url_for('history.index', page=page-1) }}">Previous</a>{% endif %}
+        <span class="muted">Page {{ page }}</span>
+        {% if has_next %}<a class="button button-secondary" href="{{ url_for('history.index', page=page+1) }}">Next</a>{% endif %}
+    </nav>
+    {% else %}
+    <section class="history-card"><div><h2>Your next step starts here.</h2><p class="muted">No interviews on this page yet. Your saved interviews will appear here after you begin.</p>
+        {% if page > 1 %}<a href="{{ url_for('history.index') }}">Back to your latest interviews</a>{% endif %}</div></section>
+    {% endif %}
+</main>
+{% endblock %}

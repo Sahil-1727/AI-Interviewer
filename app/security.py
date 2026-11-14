@@ -27,7 +27,8 @@ def init_security(app):
     def protect_state_changes():
         worker = request.path.startswith('/api/conversation/livekit/agent/')
         streaming = request.path == '/api/voice/stream' and request.method == 'GET'
-        polling = request.path == '/api/conversation' and request.method == 'GET'
+        polling = request.method == 'GET' and (request.path == '/api/conversation'
+            or request.path == '/my-interviews' or request.path.startswith('/my-interviews/'))
         if request.method not in {'POST', 'PUT', 'PATCH', 'DELETE'} and not streaming and not polling:
             return None
         if app.config['RATE_LIMIT_ENABLED'] and os.getenv('DATABASE_URL'):

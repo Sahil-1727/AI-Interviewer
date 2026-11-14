@@ -15,6 +15,10 @@
             <p class="intro-copy">A structured overview of your performance, strengths,<br class="desktop-break"> and opportunities for improvement.</p>
             {% endif %}
         </div>
+        {% if historical_interview_id %}
+        <a class="button button-secondary" href="{{ url_for('history.review', identity=historical_interview_id) }}">Review answers</a>
+        <a class="button button-secondary" href="{{ url_for('history.transcript', identity=historical_interview_id) }}">Download transcript</a>
+        {% endif %}
         <button type="button" id="print-report" class="button button-secondary">{{ icon('print') }} Print report</button>
     </div>
     <div class="report-byline">

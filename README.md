@@ -219,3 +219,19 @@ describes earlier branch behavior; use the provider and deployment sections abov
 for the current `feature/free-deployment` configuration.
 
 See [Scaling and request capacity](docs/scaling-and-capacity.md) for shared rate limits, concurrency controls, connection budgets, and multi-worker settings.
+
+### Candidate interview history
+
+Signed-in candidates can use **My interviews** to browse their own saved interviews,
+reopen persisted scorecards, and download JSON transcripts. History is paginated,
+requires an active account, and never generates a new AI evaluation or scorecard.
+Only interviews linked to the signed-in account appear; historical anonymous
+records are not automatically reassigned. Reports still being processed are shown
+without a report link. History access does not change the currently active interview.
+The feature reuses the existing database tables and requires no new migration.
+
+From **My interviews → Review answers**, candidates can inspect each saved question,
+response, and existing evaluation (including follow-ups). Unanswered, skipped,
+and unevaluated answers are labeled separately. Reviews are paginated, account
+scoped, and reuse persisted feedback without another AI call. Candidate text is
+HTML-escaped. This requires no schema changes or additional provider credits.

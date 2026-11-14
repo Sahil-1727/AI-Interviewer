@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block title %}Review your answers · AI Interviewer{% endblock %}
+{% block content %}
+<main id="main" class="page-width history-page">
+    <div class="report-heading">
+        <div><p class="eyebrow">LEARN FROM YOUR PRACTICE</p><h1>Review your <em>answers.</em></h1>
+            <p class="muted">Your saved responses and feedback. Answers without an evaluation are not assigned a score.</p></div>
+        <a class="button button-secondary" href="{{ url_for('history.index') }}">Back to my interviews</a>
+    </div>
+    {% for question, answer, evaluation in rows %}
+    <details class="answer-review" {% if loop.first %}open{% endif %}>
+        <summary><span class="eyebrow">{{ question.skill }}{% if question.parent_id %} · Follow-up{% endif %}</span>
+            <span class="review-question">{{ question.text }}</span>
+            <span class="review-status">{% if not answer %}Not answered{% elif answer.status == 'unanswered' %}Unanswered{% elif answer.status == 'skipped' %}Skipped{% elif evaluation %}Evaluated · {{ evaluation.score }} / 10{% else %}Evaluation not available{% endif %}</span>
+        </summary>
+        <div class="review-content">
+            <h2>Your answer</h2>
+            {% if answer and answer.transcript %}<p class="review-transcript">{{ answer.transcript }}</p>
+            {% else %}<p class="muted">No response was saved for this question.</p>{% endif %}
+            {% if evaluation %}
+            <h2>Feedback</h2><p>{{ evaluation.feedback }}</p>
+            {% if evaluation.strengths %}<h3>What worked</h3><ul>{% for item in evaluation.strengths %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+            {% if evaluation.weaknesses %}<h3>Focus for next time</h3><ul>{% for item in evaluation.weaknesses %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+            {% else %}<p class="muted">No evaluation is available. This review does not generate new feedback.</p>{% endif %}
+        </div>
+    </details>
+    {% else %}<section class="history-card"><p>No questions have been saved on this page.</p></section>{% endfor %}
+    <nav class="history-actions" aria-label="Answer review pages">
+        {% if page > 1 %}<a class="button button-secondary" href="{{ url_for('history.review', identity=interview.id, page=page-1) }}">Previous</a>{% endif %}
+        <span class="muted">Page {{ page }}</span>
+        {% if has_next %}<a class="button button-secondary" href="{{ url_for('history.review', identity=interview.id, page=page+1) }}">Next</a>{% endif %}
+    </nav>
+</main>
+{% endblock %}

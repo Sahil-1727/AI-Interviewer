@@ -236,14 +236,14 @@
 {% endblock %}
 {% block scripts %}
 <script id="voice-config" type="application/json">{{ voice_config|tojson }}</script>
-<script src="{{ url_for('static', filename='js/deepgram-capture.js') }}"></script>
-<script src="{{ url_for('static', filename='js/voice-turns.js') }}"></script>
-<script src="{{ url_for('static', filename='js/voice.js') }}"></script>
-<script src="{{ url_for('static', filename='js/interview-instructions.js') }}"></script>
-<script src="{{ url_for('static', filename='js/conversation.js') }}"></script>
-<script src="{{ url_for('static', filename='js/camera.js') }}"></script>
+<script src="{{ url_for('static', filename='js/deepgram-capture.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/voice-turns.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/voice.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/interview-instructions.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/conversation.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/camera.js') }}" defer></script>
 {% if livekit_enabled %}
-<script src="{{ url_for('static', filename='vendor/livekit/livekit-client.umd.js') }}"></script>
-<script src="{{ url_for('static', filename='js/livekit-interview.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/livekit/livekit-client.umd.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/livekit-interview.js') }}" defer></script>
 {% endif %}
 {% endblock %}

@@ -35,6 +35,8 @@ class SharedSessionInterface(SqlAlchemySessionInterface):
             db_session.execute(delete(model).where(model.session_id == store_id))
 
     def save_session(self, app, session, response):
+        if getattr(session, '_public_resource', False):
+            return
         try:
             if not session and session.modified:
                 model = self.sql_session_model
@@ -58,6 +60,13 @@ class SharedSessionInterface(SqlAlchemySessionInterface):
             response.headers['Cache-Control'] = 'no-store'
 
     def open_session(self, app, request):
+        # Public assets and readiness never require a candidate session. Avoid
+        # remote SQL reads and cookie writes, even when a browser sends a cookie.
+        static_prefix = (app.static_url_path or '/static').rstrip('/') + '/'
+        if request.path.startswith(static_prefix) or request.path == '/health/ready':
+            session = self.session_class(sid=self._generate_sid(self.sid_length), permanent=False)
+            session._public_resource = True
+            return session
         try:
             session = super().open_session(app, request)
         except SQLAlchemyError:

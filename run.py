@@ -47,6 +47,8 @@ if proxy_hops:
 livekit_enabled = os.getenv('LIVEKIT_ENABLED', '0').strip() == '1'
 if livekit_enabled:
     from livekit.api import AccessToken as _LiveKitAccessToken  # noqa: F401
+from app.request_timing import RequestTiming
+app.wsgi_app = RequestTiming(app.wsgi_app)
 app.jinja_env.globals['livekit_enabled'] = livekit_enabled
 app.jinja_env.globals['livekit_primary'] = livekit_enabled
 app.config["MAX_CONTENT_LENGTH"] = int(os.getenv('MAX_REQUEST_BYTES', str(12 * 1024 * 1024)))
@@ -125,6 +127,8 @@ app.extensions["conversation"] = ConversationService(
 )
 app.register_blueprint(conversation_bp)
 app.register_blueprint(accounts_bp)
+from app.routes.history import history_bp
+app.register_blueprint(history_bp)
 from app.routes.deepgram_stream import sock
 sock.init_app(app)
 

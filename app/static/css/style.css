@@ -1787,3 +1787,12 @@ body[data-interview-mode=voice] .answer-heading { margin-bottom: 8px; }
     .header-actions .header-note { display: none; }
     .admin-heading { align-items: flex-start; flex-direction: column; }
 }
+
+.history-page { padding-top: 44px; padding-bottom: 64px; }
+.history-list { padding: 0; list-style: none; }
+.history-card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; padding: 24px; margin-bottom: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.history-card h2 { font-size: 22px; margin: 0 0 10px; }
+.history-card .muted { font-size: 13px; }
+.history-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+@media (max-width: 640px) { .header-actions { flex-wrap: wrap; justify-content: flex-end; } .history-card { padding: 18px; } }
+@media print { .history-actions { display: none; } }

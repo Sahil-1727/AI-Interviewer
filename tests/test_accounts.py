@@ -12,6 +12,8 @@ from app.models.interview import DailyInterviewUsage, User
 from app.routes.accounts import accounts_bp, current_account, protect_accounts
 from app.services.interview_repository import InterviewQuotaExceeded, create_interview
 from app.security import init_security
+from app.routes.history import history_bp
+from app.models.interview import Interview, Scorecard, ConversationMessage, Question, Answer, Evaluation
 
 
 class AccountTests(unittest.TestCase):
@@ -21,6 +23,7 @@ class AccountTests(unittest.TestCase):
         self.app.config.update(SQLALCHEMY_DATABASE_URI='sqlite://', SQLALCHEMY_TRACK_MODIFICATIONS=False)
         db.init_app(self.app)
         self.app.register_blueprint(accounts_bp)
+        self.app.register_blueprint(history_bp)
         @self.app.get('/')
         def home():
             return 'setup for ' + current_account().id
@@ -115,6 +118,74 @@ class AccountTests(unittest.TestCase):
         with self.assertRaises(InterviewQuotaExceeded):
             create_interview(db.session, member.display_name, 'Python', '', plan, owner_id=member_id)
         db.session.rollback()
+
+    def test_history_is_owned_and_cached_reports_need_no_ai(self):
+        self.assertEqual(self.client.get('/my-interviews').status_code, 302)
+        self.signup()
+        owner = db.session.scalar(select(User).where(User.email == 'candidate@example.com'))
+        other = User(display_name='Other', email='other@example.com', password_hash='hash')
+        db.session.add(other)
+        db.session.flush()
+        first = Interview(owner_id=owner.id, job_description='Private JD', plan={'questions': []}, status='completed')
+        private = Interview(owner_id=other.id, job_description='Other private JD', plan={'questions': []})
+        db.session.add_all([first, private])
+        db.session.flush()
+        db.session.add(Scorecard(interview_id=first.id, result={'insufficient_evidence': True}, completion_status='completed', early_ended=True))
+        db.session.add(ConversationMessage(interview_id=first.id, sequence=0, kind='question', text='Explain lists.'))
+        db.session.commit()
+        listing = self.client.get('/my-interviews')
+        self.assertEqual(listing.status_code, 200)
+        self.assertIn(first.id, listing.text)
+        self.assertNotIn(private.id, listing.text)
+        self.assertNotIn('Private JD', listing.text)
+        self.assertEqual(listing.headers['Cache-Control'], 'no-store')
+        for _ in range(2):
+            report = self.client.get('/my-interviews/' + first.id + '/report')
+            self.assertEqual(report.status_code, 200)
+            self.assertIn('Insufficient evidence', report.text)
+        export = self.client.get('/my-interviews/' + first.id + '/transcript')
+        self.assertEqual(export.json['messages'][0]['text'], 'Explain lists.')
+        self.assertIn('attachment', export.headers['Content-Disposition'])
+        for suffix in ('report', 'transcript', 'review'):
+            self.assertEqual(self.client.get('/my-interviews/' + private.id + '/' + suffix).status_code, 404)
+            self.assertEqual(self.client.get('/my-interviews/missing/' + suffix).status_code, 404)
+
+    def test_history_pagination_and_unfinished_report(self):
+        self.signup()
+        owner = db.session.scalar(select(User).where(User.email == 'candidate@example.com'))
+        interviews = [Interview(owner_id=owner.id, job_description='JD', plan={'questions': []}) for _ in range(21)]
+        db.session.add_all(interviews)
+        db.session.commit()
+        page = self.client.get('/my-interviews')
+        self.assertIn('Next', page.text)
+        self.assertEqual(page.text.count('Download transcript'), 20)
+        self.assertEqual(self.client.get('/my-interviews?page=2').text.count('Download transcript'), 1)
+        self.assertEqual(self.client.get('/my-interviews?page=0').status_code, 400)
+        self.assertEqual(self.client.get('/my-interviews/' + interviews[0].id + '/report').status_code, 404)
+
+    def test_answer_review_shows_evidence_and_escapes_candidate_text(self):
+        self.signup()
+        owner = db.session.scalar(select(User).where(User.email == 'candidate@example.com'))
+        interview = Interview(owner_id=owner.id, job_description='JD', plan={'questions': []})
+        db.session.add(interview)
+        db.session.flush()
+        question = Question(interview_id=interview.id, sequence=0, kind='technical', skill='Python', text='Explain lists.')
+        missing = Question(interview_id=interview.id, sequence=1, kind='technical', skill='Python', text='Explain tuples.')
+        db.session.add_all([question, missing])
+        db.session.flush()
+        answer = Answer(question_id=question.id, status='answered', transcript='<script>alert(1)</script>')
+        db.session.add(answer)
+        db.session.flush()
+        db.session.add(Evaluation(answer_id=answer.id, score=7.5, strengths=['Core concept'], weaknesses=['Add examples'], feedback='Explain mutability.', follow_up_needed=False))
+        db.session.commit()
+        page = self.client.get('/my-interviews/' + interview.id + '/review')
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.headers['Cache-Control'], 'no-store')
+        for text in ('7.5 / 10', 'Core concept', 'Add examples', 'Explain mutability.', 'Not answered'):
+            self.assertIn(text, page.text)
+        self.assertIn('&lt;script&gt;', page.text)
+        self.assertNotIn('<script>alert(1)</script>', page.text)
+        self.assertEqual(self.client.get('/my-interviews/' + interview.id + '/review?page=0').status_code, 400)
 
 
 if __name__ == '__main__':

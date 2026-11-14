@@ -55,6 +55,38 @@ class PostgreSQLVoiceEndpoints(unittest.TestCase):
         self.assertEqual(response.status_code, 202, response.get_data(as_text=True))
         return self.wait(), payload
 
+    def test_account_history_review_and_storage_errors(self):
+        from app.models.interview import User
+        with run.app.app_context():
+            owner = User(display_name='History owner', password_hash='test-only')
+            other = User(display_name='Other owner', password_hash='test-only')
+            run.db.session.add_all([owner, other])
+            run.db.session.flush()
+            own = Interview(owner_id=owner.id, job_description='private JD', plan={'questions': []}, status='completed')
+            hidden = Interview(owner_id=other.id, job_description='private JD', plan={'questions': []})
+            run.db.session.add_all([own, hidden])
+            run.db.session.flush()
+            run.db.session.add(Scorecard(interview_id=own.id, result={'insufficient_evidence': True}, completion_status='completed', early_ended=True))
+            run.db.session.add(Question(interview_id=own.id, sequence=0, kind='technical', skill='Python', text='Explain a list.'))
+            run.db.session.commit()
+            owner_id, own_id, other_id = owner.id, own.id, hidden.id
+        with self.client.session_transaction() as data:
+            data['account_id'] = owner_id
+        listing = self.client.get('/my-interviews')
+        self.assertEqual(listing.status_code, 200)
+        self.assertIn(own_id, listing.text)
+        self.assertNotIn(other_id, listing.text)
+        for suffix in ('report', 'review', 'transcript'):
+            self.assertEqual(self.client.get('/my-interviews/' + own_id + '/' + suffix).status_code, 200)
+            self.assertEqual(self.client.get('/my-interviews/' + other_id + '/' + suffix).status_code, 404)
+        self.assertIn('Explain a list.', self.client.get('/my-interviews/' + own_id + '/review').text)
+        error = OperationalError('private connection details', None, Exception('secret'))
+        with patch('app.routes.history.db.session.execute', side_effect=error):
+            response = self.client.get('/my-interviews')
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn('secret', response.get_data(as_text=True))
+        self.assertEqual(self.client.get('/my-interviews').status_code, 200)
+
     def test_full_voice_interview_and_isolation(self):
         def evaluate_fractional(question, answer):
             return {**mock_evaluate(question, answer), 'score': 7.5}
