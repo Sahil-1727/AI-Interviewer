@@ -251,6 +251,87 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(len(self.client.get(base + '/transcript').json['messages']), 41)
         self.assertEqual(self.client.get(base + '/transcript?format=invalid').status_code, 400)
 
+    def practice_records(self):
+        self.signup()
+        owner = db.session.scalar(select(User).where(User.email == 'candidate@example.com'))
+        other = User(display_name='Other', password_hash='test-only')
+        db.session.add(other)
+        db.session.flush()
+        interviews = [Interview(owner_id=who, job_description='JD', plan={'questions': []})
+                      for who in (owner.id, owner.id, other.id)]
+        db.session.add_all(interviews)
+        db.session.flush()
+        questions = [Question(interview_id=item.id, sequence=0, kind='technical',
+                     skill='Python' if i < 2 else 'PrivateSkill', text=f'Question {i}')
+                     for i, item in enumerate(interviews)]
+        db.session.add_all(questions)
+        db.session.flush()
+        for i, question in enumerate(questions):
+            answer = Answer(question_id=question.id, status='answered', transcript='My explanation')
+            db.session.add(answer)
+            db.session.flush()
+            db.session.add(Evaluation(answer_id=answer.id, score=[8, 2, 1][i],
+                strengths=['Correct core concept'], weaknesses=['Explain an example'],
+                feedback='Saved feedback', follow_up_needed=False))
+        for item in (interviews[0], interviews[2]):
+            db.session.add(Scorecard(interview_id=item.id, result={}, completion_status='completed', early_ended=True))
+        db.session.commit()
+        return interviews, questions
+
+    def test_bookmark_idempotency_ownership_and_coaching(self):
+        from app.models.interview import QuestionBookmark
+        self.app.config['CSRF_ENABLED'] = True
+        interviews, questions = self.practice_records()
+        token = self.csrf('/login')
+        def path(i, q):
+            return f'/my-interviews/{i}/questions/{q}/bookmark'
+        own = path(interviews[0].id, questions[0].id)
+        self.assertEqual(self.client.post(own, data={'action': 'save'}).status_code, 403)
+        for _ in range(2):
+            self.assertEqual(self.client.post(own, data={'action': 'save', 'csrf_token': token}).status_code, 303)
+        self.assertEqual(len(db.session.scalars(select(QuestionBookmark)).all()), 1)
+        listing = self.client.get('/my-interviews/bookmarks')
+        self.assertIn('Question 0', listing.text)
+        self.assertNotIn('Question 2', listing.text)
+        self.assertEqual(listing.headers['Cache-Control'], 'no-store')
+        for route in (path(interviews[2].id, questions[2].id), path(interviews[0].id, questions[2].id)):
+            self.assertEqual(self.client.post(route, data={'action': 'save', 'csrf_token': token}).status_code, 404)
+        self.assertEqual(self.client.post(own, data={'action': 'toggle', 'csrf_token': token}).status_code, 400)
+        review = self.client.get(f'/my-interviews/{interviews[0].id}/review?question={questions[0].id}')
+        for value in ('ANSWER COACHING', 'Explain an example', 'Correct core concept', 'Remove bookmark'):
+            self.assertIn(value, review.text)
+        self.assertEqual(self.client.get(f'/my-interviews/{interviews[0].id}/review?question={questions[2].id}').status_code, 404)
+        for _ in range(2):
+            self.assertEqual(self.client.post(own, data={'action': 'remove', 'csrf_token': token}).status_code, 303)
+        self.assertEqual(len(db.session.scalars(select(QuestionBookmark)).all()), 0)
+        self.assertEqual(self.client.get('/my-interviews/bookmarks?page=0').status_code, 400)
+
+    def test_progress_uses_only_owned_evaluated_answered_reports(self):
+        self.assertEqual(self.client.get('/my-interviews/progress').status_code, 302)
+        interviews, questions = self.practice_records()
+        extra = Question(interview_id=interviews[0].id, sequence=1, kind='technical', skill='UnansweredSkill', text='No answer')
+        db.session.add(extra)
+        db.session.flush()
+        db.session.add(Answer(question_id=extra.id, status='unanswered'))
+        db.session.commit()
+        response = self.client.get('/my-interviews/progress')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('8.0 / 10', response.text)
+        self.assertIn('Python', response.text)
+        self.assertNotIn('PrivateSkill', response.text)
+        self.assertNotIn('UnansweredSkill', response.text)
+        self.assertNotIn('2.0 / 10', response.text)
+        self.assertIn(interviews[0].id, response.text)
+        self.assertNotIn(interviews[1].id, response.text)
+        self.assertEqual(response.headers['Cache-Control'], 'no-store')
+
+    def test_practice_empty_states(self):
+        self.signup()
+        self.assertIn('No bookmarks', self.client.get('/my-interviews/bookmarks').text)
+        page = self.client.get('/my-interviews/progress')
+        self.assertIn('Not available', page.text)
+        self.assertIn('No evaluated interviews yet', page.text)
+
 
 if __name__ == '__main__':
     unittest.main()

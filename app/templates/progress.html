@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block title %}Your progress · AI Interviewer{% endblock %}
+{% block content %}
+<main id="main" class="page-width history-page">
+    <div class="report-heading"><div><p class="eyebrow">SMALL STEPS, LASTING PROGRESS</p><h1>Your practice <em>over time.</em></h1><p class="muted">Based on evaluated answers from interviews with saved final reports, including early-ended interviews.</p></div><a class="button button-secondary" href="{{ url_for('history.index') }}">My interviews</a></div>
+    <section class="practice-stats" aria-label="Practice summary">
+        <div class="history-card"><div><h2>{{ reports }}</h2><p>Saved reports</p></div></div>
+        <div class="history-card"><div><h2>{{ samples }}</h2><p>Evaluated answers</p></div></div>
+        <div class="history-card"><div><h2>{% if average is not none %}{{ '%.1f'|format(average) }} / 10{% else %}Not available{% endif %}</h2><p>Average answer score</p></div></div>
+    </section>
+    <p class="muted">Unanswered, skipped, and unevaluated answers are excluded. Question difficulty and topics vary; these are practice indicators, not standardized comparisons. Follow-up answers count as separate evaluated answers.</p>
+    <section class="coaching-panel"><h2>Skills to practise</h2><p class="muted">Up to 20 skills, starting with the lowest average. A small sample may not represent your overall ability.</p>
+        {% for skill, score, count in skills %}<div class="skill-progress"><div><strong>{{ skill }}</strong><span>{{ '%.1f'|format(score) }} / 10 · {{ count }} answer{{ '' if count == 1 else 's' }}</span></div><meter min="0" max="10" value="{{ score }}" aria-label="{{ skill }} average score">{{ score }} / 10</meter></div>
+        {% else %}<p>Complete an interview with evaluated answers to see skill feedback here.</p>{% endfor %}
+    </section>
+    <section class="coaching-panel"><h2>Recent practice</h2><p class="muted">Your latest 20 interviews with evaluated answers, newest first.</p>
+        {% for identity, date, score, count in recent %}<div class="progress-session"><div><time datetime="{{ date.isoformat() }}">{{ date.strftime('%d %b %Y · %H:%M') }} UTC</time><p>{{ '%.1f'|format(score) }} / 10 · {{ count }} evaluated answer{{ '' if count == 1 else 's' }}</p></div><a class="button button-secondary" href="{{ url_for('history.review', identity=identity) }}">Review answers</a></div>
+        {% else %}<p>No evaluated interviews yet. Your saved practice will appear here.</p>{% endfor %}
+    </section>
+</main>
+{% endblock %}

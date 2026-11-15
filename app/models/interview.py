@@ -81,6 +81,13 @@ class Answer(db.Model):
     __table_args__ = (CheckConstraint("status IN ('answered', 'unanswered', 'skipped')", name="answer_status"),)
 
 
+class QuestionBookmark(db.Model):
+    __tablename__ = 'question_bookmarks'
+    user_id: Mapped[str] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
+    question_id: Mapped[str] = mapped_column(ForeignKey('questions.id', ondelete='CASCADE'), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class Evaluation(db.Model):
     __tablename__ = "evaluations"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=identifier)

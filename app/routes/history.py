@@ -1,10 +1,10 @@
 """Read-only account history. Ownership is checked in every database query."""
-from flask import Blueprint, Response, abort, g, jsonify, render_template, request
+from flask import Blueprint, Response, abort, g, jsonify, redirect, render_template, request, url_for
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import aliased, load_only
 
 from app.database import db
-from app.models.interview import Answer, ConversationMessage, Evaluation, Interview, Question, Scorecard
+from app.models.interview import Answer, ConversationMessage, Evaluation, Interview, Question, QuestionBookmark, Scorecard
 
 history_bp = Blueprint('history', __name__)
 PAGE_SIZE = 20
@@ -109,6 +109,7 @@ def transcript(identity):
 @history_bp.get('/my-interviews/<identity>/review')
 def review(identity):
     interview = owned_interview(identity)
+    focused = request.args.get('question')
     page = request.args.get('page', default=1, type=int)
     if page < 1 or page > 10000:
         abort(400)
@@ -118,11 +119,82 @@ def review(identity):
         .outerjoin(Answer, Answer.question_id == Question.id)
         .outerjoin(Evaluation, Evaluation.answer_id == Answer.id)
         .where(Question.interview_id == interview.id)
+        .where(Question.id == focused if focused else True)
         .order_by(func.coalesce(parent.sequence, Question.sequence),
                   Question.parent_id.is_not(None), Question.sequence, Question.id)
         .offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE + 1)).all()
+    if focused and not rows:
+        abort(404)
+    bookmarks = set(db.session.scalars(select(QuestionBookmark.question_id).where(
+        QuestionBookmark.user_id == owner_id(), QuestionBookmark.question_id.in_([row[0].id for row in rows]))))
     return render_template('review.html', interview=interview, rows=rows[:PAGE_SIZE],
-                           page=page, has_next=len(rows) > PAGE_SIZE)
+                           page=page, has_next=len(rows) > PAGE_SIZE, bookmarks=bookmarks)
+
+
+@history_bp.post('/my-interviews/<identity>/questions/<question_id>/bookmark')
+def bookmark(identity, question_id):
+    interview = owned_interview(identity)
+    question = db.session.scalar(select(Question.id).where(
+        Question.id == question_id, Question.interview_id == interview.id))
+    if question is None:
+        abort(404)
+    action = request.form.get('action')
+    if action not in {'save', 'remove'}:
+        abort(400)
+    if action == 'save':
+        # Explicit desired state makes duplicate clicks safe across workers.
+        if db.engine.dialect.name == 'postgresql':
+            from sqlalchemy.dialects.postgresql import insert
+        else:
+            from sqlalchemy.dialects.sqlite import insert
+        db.session.execute(insert(QuestionBookmark).values(user_id=owner_id(), question_id=question_id)
+            .on_conflict_do_nothing(index_elements=['user_id', 'question_id']))
+    else:
+        from sqlalchemy import delete
+        db.session.execute(delete(QuestionBookmark).where(
+            QuestionBookmark.user_id == owner_id(), QuestionBookmark.question_id == question_id))
+    db.session.commit()
+    if request.form.get('return_to') == 'bookmarks':
+        return redirect(url_for('history.bookmarks'), code=303)
+    return redirect(url_for('history.review', identity=identity, question=question_id), code=303)
+
+
+@history_bp.get('/my-interviews/bookmarks')
+def bookmarks():
+    page = request.args.get('page', default=1, type=int)
+    if not 1 <= page <= 10000:
+        abort(400)
+    rows = db.session.execute(select(Question, QuestionBookmark.created_at)
+        .join(QuestionBookmark, QuestionBookmark.question_id == Question.id)
+        .join(Interview, Interview.id == Question.interview_id)
+        .where(QuestionBookmark.user_id == owner_id(), Interview.owner_id == owner_id())
+        .order_by(QuestionBookmark.created_at.desc(), Question.id)
+        .offset((page - 1) * PAGE_SIZE).limit(PAGE_SIZE + 1)).all()
+    return render_template('bookmarks.html', rows=rows[:PAGE_SIZE], page=page, has_next=len(rows) > PAGE_SIZE)
+
+
+@history_bp.get('/my-interviews/progress')
+def progress():
+    account = owner_id()
+    # Scores are comparable as practice indicators, not standardized assessments.
+    base = (select(Interview.id.label('interview_id'), Interview.created_at,
+        Question.skill, Evaluation.score).select_from(Interview)
+        .join(Scorecard, Scorecard.interview_id == Interview.id)
+        .join(Question, Question.interview_id == Interview.id)
+        .join(Answer, Answer.question_id == Question.id)
+        .join(Evaluation, Evaluation.answer_id == Answer.id)
+        .where(Interview.owner_id == account, Answer.status == 'answered').subquery())
+    skills = db.session.execute(select(base.c.skill, func.avg(base.c.score).label('average'),
+        func.count().label('samples')).group_by(base.c.skill).order_by(func.avg(base.c.score), base.c.skill).limit(20)).all()
+    recent = db.session.execute(select(base.c.interview_id, base.c.created_at,
+        func.avg(base.c.score).label('average'), func.count().label('samples'))
+        .group_by(base.c.interview_id, base.c.created_at)
+        .order_by(base.c.created_at.desc(), base.c.interview_id.desc()).limit(20)).all()
+    reports = db.session.scalar(select(func.count(Scorecard.id)).join(Interview,
+        Interview.id == Scorecard.interview_id).where(Interview.owner_id == account))
+    average, samples = db.session.execute(select(func.avg(base.c.score), func.count()).select_from(base)).one()
+    return render_template('progress.html', skills=skills, recent=recent, reports=reports,
+        average=average, samples=samples)
 
 
 MESSAGE_LABELS = {

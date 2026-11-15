@@ -59,7 +59,7 @@ app.config['SOCK_SERVER_OPTIONS'] = {'max_message_size': 256 * 1024, 'ping_inter
 READINESS_TABLES = (
     'web_sessions', 'users', 'interviews', 'questions', 'answers',
     'evaluations', 'conversation_messages', 'scorecards', 'interview_requests',
-    'interview_access', 'voice_snapshots', 'request_limits', 'daily_interview_usage',
+    'interview_access', 'voice_snapshots', 'request_limits', 'daily_interview_usage', 'question_bookmarks',
 )
 if app.config['MAX_CONTENT_LENGTH'] <= 0:
     raise RuntimeError('MAX_REQUEST_BYTES must be positive.')

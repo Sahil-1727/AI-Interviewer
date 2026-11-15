@@ -1,0 +1,13 @@
+<section class="coaching-panel" aria-label="Answer coaching">
+    <p class="eyebrow">ANSWER COACHING</p>
+    <h3>Build your next response</h3>
+    <p class="muted">A practice guide using your saved evaluation. The structure below is general guidance, not a model answer or a new assessment.</p>
+    {% if evaluation.weaknesses %}<p><strong>Your next focus:</strong> {{ evaluation.weaknesses[0] }}</p>{% endif %}
+    {% if evaluation.strengths %}<p><strong>Keep doing:</strong> {{ evaluation.strengths[0] }}</p>{% endif %}
+    {% if question.kind in ['behavioral', 'behavioural', 'project', 'project_based'] %}
+    <ol><li>Briefly describe the situation and your responsibility.</li><li>Explain what you personally did and why.</li><li>Describe the outcome and what you learned. Use facts you can support.</li></ol>
+    {% else %}
+    <ol><li>Answer the core question directly in your own words.</li><li>Explain your reasoning and give one relevant example.</li><li>Address the improvement points above. Mention a trade-off or limitation when relevant.</li></ol>
+    {% endif %}
+    <p>Try explaining the answer aloud again before checking your saved feedback. Focus on accuracy and clarity rather than length.</p>
+</section>

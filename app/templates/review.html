@@ -14,6 +14,11 @@
             <span class="review-status">{% if not answer %}Not answered{% elif answer.status == 'unanswered' %}Unanswered{% elif answer.status == 'skipped' %}Skipped{% elif evaluation %}Evaluated · {{ evaluation.score }} / 10{% else %}Evaluation not available{% endif %}</span>
         </summary>
         <div class="review-content">
+            <form method="post" action="{{ url_for('history.bookmark', identity=interview.id, question_id=question.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="{{ 'remove' if question.id in bookmarks else 'save' }}">
+                <button class="button button-secondary" type="submit">{{ 'Remove bookmark' if question.id in bookmarks else 'Bookmark question' }}</button>
+            </form>
             <h2>Your answer</h2>
             {% if answer and answer.transcript %}<p class="review-transcript">{{ answer.transcript }}</p>
             {% else %}<p class="muted">No response was saved for this question.</p>{% endif %}
@@ -21,6 +26,7 @@
             <h2>Feedback</h2><p>{{ evaluation.feedback }}</p>
             {% if evaluation.strengths %}<h3>What worked</h3><ul>{% for item in evaluation.strengths %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
             {% if evaluation.weaknesses %}<h3>Focus for next time</h3><ul>{% for item in evaluation.weaknesses %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+            {% include 'answer_coaching.html' %}
             {% else %}<p class="muted">No evaluation is available. This review does not generate new feedback.</p>{% endif %}
         </div>
     </details>

@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block title %}Bookmarked questions · AI Interviewer{% endblock %}
+{% block content %}
+<main id="main" class="page-width history-page">
+    <div class="report-heading"><div><p class="eyebrow">YOUR PRACTICE COLLECTION</p><h1>Questions worth <em>revisiting.</em></h1><p class="muted">Private bookmarks from your interviews. Open the original review to revisit feedback and coaching.</p></div><a class="button button-secondary" href="{{ url_for('history.index') }}">My interviews</a></div>
+    <ul class="history-list">
+    {% for question, saved_at in rows %}
+        <li class="history-card"><div><p class="eyebrow">{{ question.skill }}{% if question.parent_id %} · Follow-up{% endif %}</p><h2>{{ question.text }}</h2><p class="muted">Saved {{ saved_at.strftime('%d %b %Y') }}</p></div>
+            <div class="history-actions"><a class="button button-secondary" href="{{ url_for('history.review', identity=question.interview_id, question=question.id) }}">Review answer and coaching</a>
+                <form method="post" action="{{ url_for('history.bookmark', identity=question.interview_id, question_id=question.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="remove"><input type="hidden" name="return_to" value="bookmarks"><button type="submit" class="button button-text">Remove bookmark</button></form>
+            </div></li>
+    {% else %}<li class="history-card"><p>No bookmarks on this page. Open an interview’s answer review and choose Bookmark question.</p></li>{% endfor %}
+    </ul>
+    <nav class="history-actions" aria-label="Bookmark pages">{% if page > 1 %}<a class="button button-secondary" href="{{ url_for('history.bookmarks', page=page-1) }}">Previous</a>{% endif %}<span class="muted">Page {{ page }}</span>{% if has_next %}<a class="button button-secondary" href="{{ url_for('history.bookmarks', page=page+1) }}">Next</a>{% endif %}</nav>
+</main>
+{% endblock %}

@@ -55,6 +55,40 @@ class PostgreSQLVoiceEndpoints(unittest.TestCase):
         self.assertEqual(response.status_code, 202, response.get_data(as_text=True))
         return self.wait(), payload
 
+    def test_practice_bookmark_concurrency_and_progress(self):
+        from app.models.interview import User, QuestionBookmark
+        with run.app.app_context():
+            owner = User(display_name='Practice owner', password_hash='test-only')
+            run.db.session.add(owner)
+            run.db.session.flush()
+            interview = Interview(owner_id=owner.id, job_description='Python', plan={'questions': []}, status='completed')
+            run.db.session.add(interview)
+            run.db.session.flush()
+            question = Question(interview_id=interview.id, sequence=0, kind='technical', skill='Python', text='Explain a list')
+            run.db.session.add(question)
+            run.db.session.flush()
+            answer = Answer(question_id=question.id, status='answered', transcript='An ordered collection')
+            run.db.session.add(answer)
+            run.db.session.flush()
+            run.db.session.add(Evaluation(answer_id=answer.id, score=7.5, strengths=['Core concept'],
+                weaknesses=['Add example'], feedback='Clear', follow_up_needed=False))
+            run.db.session.add(Scorecard(interview_id=interview.id, result={}, completion_status='completed', early_ended=False))
+            run.db.session.commit()
+            owner_id, interview_id, question_id = owner.id, interview.id, question.id
+        def save(_):
+            client = run.app.test_client()
+            with client.session_transaction() as session:
+                session['account_id'] = owner_id
+            return client.post(f'/my-interviews/{interview_id}/questions/{question_id}/bookmark', data={'action': 'save'}).status_code
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            self.assertEqual(list(pool.map(save, range(4))), [303] * 4)
+        with run.app.app_context():
+            self.assertEqual(len(run.db.session.scalars(select(QuestionBookmark).where(QuestionBookmark.user_id == owner_id)).all()), 1)
+        with self.client.session_transaction() as session:
+            session['account_id'] = owner_id
+        self.assertIn('7.5 / 10', self.client.get('/my-interviews/progress').text)
+        self.assertIn('Explain a list', self.client.get('/my-interviews/bookmarks').text)
+
     def test_account_history_review_and_storage_errors(self):
         from app.models.interview import User
         with run.app.app_context():

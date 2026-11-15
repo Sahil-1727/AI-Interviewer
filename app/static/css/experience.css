@@ -256,3 +256,19 @@ input, textarea, select { max-width: 100%; }
     .page-width { width: 100%; max-width: none; }
     .interview-sidebar { display: none; }
 }
+
+/* Private practice tools share the existing history and report layout. */
+.practice-navigation { margin-bottom: 24px; }
+.coaching-panel { padding: clamp(18px, 3vw, 28px); margin: 24px 0; background: var(--tint); border: 1px solid var(--line); border-radius: 10px; overflow-wrap: anywhere; }
+.coaching-panel ol { padding-left: 24px; }
+.coaching-panel li { margin: 10px 0; }
+.practice-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.practice-stats .history-card { margin: 0; }
+.skill-progress { margin: 24px 0; }
+.skill-progress > div, .progress-session { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; }
+.skill-progress meter { display: block; width: 100%; height: 20px; margin-top: 8px; accent-color: var(--copper); }
+.progress-session { padding: 18px 0; border-top: 1px solid var(--line); }
+@media (max-width: 700px) {
+    .practice-stats { grid-template-columns: minmax(0, 1fr); }
+    .progress-session { align-items: stretch; flex-direction: column; }
+}
