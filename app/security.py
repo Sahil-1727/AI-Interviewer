@@ -16,8 +16,22 @@ def csrf_token():
 
 
 def init_security(app):
+    # Bound multipart parsing as well as the overall request body. Flask 3.1
+    # applies these limits before processing individual form fields.
+    app.config['MAX_FORM_MEMORY_SIZE'] = 500_000
+    app.config['MAX_FORM_PARTS'] = 100
     app.config['CSRF_ENABLED'] = os.getenv('CSRF_ENABLED', '1') != '0'
     app.config['RATE_LIMIT_ENABLED'] = os.getenv('RATE_LIMIT_ENABLED', '1') != '0'
+
+    @app.after_request
+    def browser_security_headers(response):
+        response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+        response.headers.setdefault('X-Frame-Options', 'DENY')
+        response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+        response.headers.setdefault('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=()')
+        if request.endpoint != 'static':
+            response.headers['Cache-Control'] = 'no-store'
+        return response
 
     @app.context_processor
     def csrf_context():

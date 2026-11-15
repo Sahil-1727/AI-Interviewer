@@ -87,7 +87,7 @@ app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key")
 
 @app.errorhandler(413)
 def upload_too_large(error):
-    return jsonify(error="Recording or upload exceeds the 12 MB limit. Use shorter recording segments."), 413
+    return jsonify(error="Upload or form exceeds the configured limit. Use a smaller PDF, shorter recording, or shorter form fields."), 413
 
 
 @app.errorhandler(SQLAlchemyError)

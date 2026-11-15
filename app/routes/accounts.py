@@ -21,6 +21,15 @@ def current_account():
     return getattr(g, 'current_account', None)
 
 
+def establish_login(user):
+    session.clear()
+    session['account_id'] = user.id
+    session['candidate_name'] = user.display_name
+    regenerate = getattr(current_app.session_interface, 'regenerate', None)
+    if regenerate is not None:
+        regenerate(session)
+
+
 def daily_usage(account_id):
     if not account_id:
         return 0, 2
@@ -129,9 +138,7 @@ def signup():
         return render_template('signup.html',
             error='Account storage is unavailable or needs a schema update. Please try again later.',
             display_name=name, email=email), 503
-    session.clear()
-    session['account_id'] = user.id
-    session['candidate_name'] = user.display_name
+    establish_login(user)
     return redirect(url_for('home'))
 
 
@@ -149,9 +156,7 @@ def login():
     if not valid:
         return render_template('login.html', error='Invalid email or password.', email=email,
                                next_path=safe_next(request.form.get('next'))), 401
-    session.clear()
-    session['account_id'] = user.id
-    session['candidate_name'] = user.display_name
+    establish_login(user)
     return redirect(safe_next(request.form.get('next')) or url_for('home'))
 
 

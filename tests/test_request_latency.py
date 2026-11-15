@@ -125,3 +125,35 @@ class AssetFailureHandling(unittest.TestCase):
                 self.assertEqual(url_for('static', filename='demo.js'), '/static/demo.js')
             self.assertNotIn('immutable', app.test_client().get('/static/demo.js').headers['Cache-Control'])
             self.assertEqual(app.test_client().get('/static/missing.js').status_code, 404)
+
+
+class SessionRotation(unittest.TestCase):
+    def test_login_rotation_invalidates_old_cookie_and_persists_new_identity(self):
+        app = Flask(__name__)
+        app.secret_key = 'test-only'
+        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite://'
+        db = SQLAlchemy(app)
+        interface = SharedSessionInterface(app, client=db, table='rotation_sessions')
+        app.session_interface = interface
+        @app.get('/seed')
+        def seed():
+            session['anonymous'] = True
+            return 'ok'
+        @app.post('/login')
+        def login():
+            from types import SimpleNamespace
+            from app.routes.accounts import establish_login
+            establish_login(SimpleNamespace(id='candidate-id', display_name='Candidate'))
+            return 'ok'
+        @app.get('/identity')
+        def identity():
+            return {'id': session.get('account_id')}
+        client = app.test_client()
+        client.get('/seed')
+        old = client.get_cookie('session').value
+        self.assertEqual(client.post('/login').status_code, 200)
+        self.assertNotEqual(old, client.get_cookie('session').value)
+        self.assertEqual(client.get('/identity').json['id'], 'candidate-id')
+        replay = app.test_client()
+        replay.set_cookie('session', old)
+        self.assertIsNone(replay.get('/identity').json['id'])

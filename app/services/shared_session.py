@@ -20,6 +20,15 @@ def utcnow():
 
 
 class SharedSessionInterface(SqlAlchemySessionInterface):
+    def regenerate(self, session):
+        if not session:
+            return
+        super().regenerate(session)
+        # The replacement is a new row, not an expired/deleted existing SID.
+        session._existing_sid = False
+        session._initial_data = {}
+        session._refresh_due = True
+
     def _retrieve_session_data(self, store_id):
         model = self.sql_session_model
         with Session(self.client.engine) as db_session, db_session.begin():

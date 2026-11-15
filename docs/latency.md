@@ -51,3 +51,17 @@ Tests verify zero session upserts for fresh read-only navigation, immediate writ
 on mutations, due refreshes, expired-session rejection, and cache invalidation
 when asset content changes. These reduce database and asset-request work; Render
 cold starts, network transit and provider response times still require live timing.
+# Page rendering and recoverable connection failures
+
+Font stylesheets are discovered in the document head instead of a CSS `@import`.
+Preconnect hints prepare the Google Fonts connections, and the font stylesheet
+loads for print first, then activates after download. System fonts render the
+page while the download is pending; JavaScript-disabled browsers use a normal
+stylesheet fallback. This removes fonts from the initial screen-rendering path;
+no live latency reduction has been measured for this change.
+
+The conversation controller preserves existing answers and exposes recoverable
+messages for request timeouts, expired sessions, rate limits, HTML proxy errors,
+and malformed successful responses. It does not automatically retry writes:
+the existing request IDs and retry controls retain responsibility for safely
+resuming ambiguous submissions.

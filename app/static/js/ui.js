@@ -1,3 +1,9 @@
+// Fonts enhance the initial system-font render without blocking page display.
+const interviewFonts = document.getElementById('interview-fonts');
+if (interviewFonts) {
+    interviewFonts.addEventListener('load', () => { interviewFonts.media = 'all'; });
+    if (interviewFonts.sheet) interviewFonts.media = 'all';
+}
 document.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll("[data-submit-form]").forEach(form => {
         const buttons = Array.from(form.querySelectorAll("button"));

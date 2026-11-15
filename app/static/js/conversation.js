@@ -113,9 +113,22 @@ if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded
                 headers: {'Content-Type': 'application/json'},
                 ...(body === undefined ? {} : {body: JSON.stringify(body)})
             });
-            const data = await response.json();
-            if (!response.ok) throw Object.assign(new Error(data.error || 'Interview service unavailable.'), {status: response.status});
+            const data = await response.json().catch(() => null);
+            if (!response.ok) {
+                const fallback = response.status === 401 ? 'Your session expired. Sign in again to continue.'
+                    : response.status === 429 ? 'Too many requests. Wait a moment before retrying.'
+                    : response.status >= 500 ? 'The interview service is temporarily unavailable. Please retry shortly.'
+                    : 'The request could not be completed. Please retry.';
+                throw Object.assign(new Error(data?.error || fallback), {status: response.status});
+            }
+            if (!data || typeof data !== 'object' || Array.isArray(data)) {
+                throw new Error('The server returned an unexpected response. Please retry.');
+            }
             return data;
+        } catch (error) {
+            if (error.name === 'AbortError') throw new Error('The request timed out. Please retry.');
+            if (error instanceof TypeError) throw new Error('Could not connect to the interview service. Check your connection and retry.');
+            throw error;
         } finally { clearTimeout(timeout); }
     }
 
