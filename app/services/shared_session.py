@@ -1,6 +1,8 @@
 """Merge independent session changes under a PostgreSQL row lock."""
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+from flask import current_app, g
 
 from flask_session.sqlalchemy import SqlAlchemySessionInterface
 from sqlalchemy import delete, select
@@ -27,6 +29,10 @@ class SharedSessionInterface(SqlAlchemySessionInterface):
             if record.expiry is None or record.expiry <= utcnow():
                 db_session.execute(delete(model).where(model.session_id == store_id, model.expiry <= utcnow()))
                 return None
+            interval = min(float(current_app.config.get('SESSION_REFRESH_INTERVAL_SECONDS', 300)),
+                           current_app.permanent_session_lifetime.total_seconds() / 2)
+            g._session_refresh_due = (record.expiry <= utcnow()
+                + current_app.permanent_session_lifetime - timedelta(seconds=interval))
             return self.serializer.decode(record.data)
 
     def _delete_session(self, store_id):
@@ -36,6 +42,13 @@ class SharedSessionInterface(SqlAlchemySessionInterface):
 
     def save_session(self, app, session, response):
         if getattr(session, '_public_resource', False):
+            return
+        # Read-only navigation still verifies expiry, but does not lock and
+        # rewrite a fresh session row on every page or polling request.
+        if (session and not session.modified and not getattr(session, '_refresh_due', True)
+                and dict(session) == session._initial_data):
+            if session.accessed:
+                response.vary.add('Cookie')
             return
         try:
             if not session and session.modified:
@@ -67,11 +80,13 @@ class SharedSessionInterface(SqlAlchemySessionInterface):
             session = self.session_class(sid=self._generate_sid(self.sid_length), permanent=False)
             session._public_resource = True
             return session
+        g._session_refresh_due = True
         try:
             session = super().open_session(app, request)
         except SQLAlchemyError:
             session = self.session_class(sid=self._generate_sid(self.sid_length), permanent=self.permanent)
             session._storage_unavailable = True
+        session._refresh_due = g._session_refresh_due
         session._initial_data = deepcopy(dict(session))
         session._existing_sid = request.cookies.get(app.config['SESSION_COOKIE_NAME']) == session.sid
         return session

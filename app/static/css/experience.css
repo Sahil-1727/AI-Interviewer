@@ -162,3 +162,97 @@ h1 em { font-style: italic; }
 .transcript-message time { color: var(--muted); font-size: 12px; }
 .transcript-message p { white-space: pre-wrap; overflow-wrap: anywhere; }
 @media print { .transcript-tools, .history-filters { display: none; } }
+
+/* Responsive layout: fluid containers, readable controls, no clipped content. */
+.page-width { padding-inline: 0; }
+.setup-layout > *, .interview-grid > *, .report-columns > *, .assessment-grid > *,
+.history-card > *, .report-heading > *, .header-actions, .field { min-width: 0; }
+img, video, canvas, svg { max-width: 100%; }
+.button { white-space: normal; text-align: center; }
+.history-card, .transcript-message, .review-content { overflow-wrap: anywhere; }
+input, textarea, select { max-width: 100%; }
+#answer { width: 100%; }
+.site-header { padding-left: max(24px, env(safe-area-inset-left)); padding-right: max(24px, env(safe-area-inset-right)); }
+.site-footer { padding-bottom: max(24px, env(safe-area-inset-bottom)); gap: 16px; flex-wrap: wrap; }
+#interview-instructions { max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overscroll-behavior: contain; }
+#interview-instructions .instruction-content { overflow-wrap: anywhere; }
+.instruction-acknowledgment { min-height: 48px; align-items: center; }
+.instruction-acknowledgment input { flex-shrink: 0; width: 20px; height: 20px; }
+.answer-review summary { min-height: 48px; }
+.admin-table-wrap { max-width: 100%; overscroll-behavior-x: contain; }
+@media (max-width: 960px) {
+    .setup-layout { grid-template-columns: minmax(0, 1fr); max-width: 760px; }
+    .setup-intro h1 { font-size: clamp(36px, 6vw, 52px); }
+    .interview-grid { grid-template-columns: minmax(0, 1fr); }
+    .interview-sidebar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+    .interview-sidebar > * { min-width: 0; }
+    .report-columns, .assessment-grid { grid-template-columns: minmax(0, 1fr); }
+    .header-actions .header-note { display: none; }
+    input:not([type=checkbox]):not([type=radio]), textarea, select { font-size: 16px; }
+    .camera-frame { max-width: 100%; }
+}
+@media (min-width: 701px) and (max-width: 960px) {
+    .setup-intro .process-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+    .process-list li { display: block; padding-top: 16px; border-top: 1px solid #ffffff26; }
+    .process-list .step-number { display: block; margin-bottom: 12px; }
+    .process-list h2 { font-size: 16px; }
+    .process-list p { font-size: 13px; }
+}
+@media (max-width: 700px) {
+    .setup-intro .process-list { display: flex; flex-direction: column; gap: 16px; }
+    .setup-intro .process-list li { min-width: 0; }
+    .site-header { gap: 12px; padding-top: 12px; padding-bottom: 12px; }
+    .site-header .brand { font-size: 16px; gap: 8px; }
+    .site-header .header-actions { margin-left: auto; gap: 8px; }
+    .site-header .header-actions .button { min-height: 44px; font-size: 13px; }
+    .site-header .journey { margin: 0; font-size: 11px; }
+    .setup-layout { padding-top: 20px; gap: 20px; }
+    .setup-intro h1 { font-size: clamp(34px, 8vw, 46px); margin: 16px 0; }
+    .setup-intro .intro-copy { font-size: 15px; margin-top: 16px; }
+    .setup-panel h2 { font-size: 27px; }
+    .workspace { padding-top: 24px; }
+    .workspace-heading { flex-direction: column; align-items: stretch; }
+    .workspace-heading h1 { font-size: clamp(28px, 7vw, 38px); }
+    .candidate-chip { align-self: flex-start; max-width: 100%; }
+    .question-meta, .question-bottom, .interviewer-band, .answer-heading { flex-wrap: wrap; gap: 12px; }
+    .question-content h2 { font-size: 23px; }
+    .conversation-controls { padding: 18px; }
+    .conversation-controls .button, .recording-controls .button, .conversation-start .button { min-height: 48px; flex: 1 1 140px; }
+    .conversation-secondary { opacity: 1; }
+    .interview-sidebar { grid-template-columns: minmax(0, 1fr); }
+    .history-card, .report-heading { flex-direction: column; align-items: stretch; }
+    .history-actions .button, .transcript-tools .button { flex: 1 1 140px; min-height: 48px; }
+    .history-filters { padding: 16px; gap: 14px; }
+    .history-filters .field { flex-basis: 100%; }
+    .history-filters > .button { flex: 1 1 120px; min-height: 48px; }
+    .history-page, .report { padding-top: 24px; padding-bottom: 36px; }
+    .report-byline { flex-wrap: wrap; gap: 16px; }
+    .performance-overview { grid-template-columns: minmax(0, 1fr); padding: 0; }
+    .overall-summary { padding: 22px; }
+    .overall-score { display: block; padding: 22px; }
+    .score-value { font-size: 64px; margin: 12px 0; }
+    .review-question { font-size: 20px; }
+    .answer-review summary, .review-content, .transcript-message { padding: 18px; }
+    .account-layout { padding-top: 24px; padding-bottom: 36px; min-height: auto; }
+    .account-card { width: 100%; padding: 24px; }
+    .account-switch a { display: inline-block; min-height: 44px; padding-block: 10px; }
+    .site-footer { font-size: 12px; }
+}
+@media (max-width: 380px) {
+    .page-width { width: calc(100% - 24px); }
+    .site-header { padding-inline: 12px; }
+    .site-header .brand { width: 100%; }
+    .site-header .header-actions { width: 100%; justify-content: space-between; }
+    .setup-panel, .setup-intro { padding: 18px; }
+    .conversation-secondary #end-interview { flex-basis: 100%; }
+    .account-card { padding: 20px; }
+    .account-card h1 { font-size: 34px; }
+}
+@media (pointer: coarse) {
+    button, .button, select, .upload-area { min-height: 48px; }
+    input[type=checkbox], input[type=radio] { min-width: 20px; min-height: 20px; }
+}
+@media print {
+    .page-width { width: 100%; max-width: none; }
+    .interview-sidebar { display: none; }
+}

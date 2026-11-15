@@ -77,6 +77,12 @@ class PostgreSQLVoiceEndpoints(unittest.TestCase):
         self.assertEqual(listing.status_code, 200)
         self.assertIn(own_id, listing.text)
         self.assertNotIn(other_id, listing.text)
+        interface = run.app.session_interface
+        with patch.object(interface, '_upsert_session', wraps=interface._upsert_session) as write:
+            self.assertEqual(self.client.get('/my-interviews').status_code, 200)
+            self.assertEqual(self.client.get('/my-interviews').status_code, 200)
+            write.assert_not_called()
+
         for query in ('python', '%'):
             result = self.client.get('/my-interviews', query_string={'q': query, 'status': 'report'})
             self.assertEqual(result.status_code, 200)

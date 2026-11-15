@@ -49,6 +49,9 @@ if livekit_enabled:
     from livekit.api import AccessToken as _LiveKitAccessToken  # noqa: F401
 from app.request_timing import RequestTiming
 app.wsgi_app = RequestTiming(app.wsgi_app)
+from app.assets import init_assets
+app.config['VERSIONED_ASSET_CACHE'] = os.getenv('APP_ENV') == 'production'
+init_assets(app)
 app.jinja_env.globals['livekit_enabled'] = livekit_enabled
 app.jinja_env.globals['livekit_primary'] = livekit_enabled
 app.config["MAX_CONTENT_LENGTH"] = int(os.getenv('MAX_REQUEST_BYTES', str(12 * 1024 * 1024)))
@@ -110,6 +113,10 @@ if os.getenv("DATABASE_URL"):
     retention_seconds = int(os.getenv('SESSION_RETENTION_SECONDS', '86400'))
     if retention_seconds <= 0:
         raise RuntimeError('SESSION_RETENTION_SECONDS must be positive.')
+    refresh_interval = float(os.getenv('SESSION_REFRESH_INTERVAL_SECONDS', '300'))
+    if not 0 < refresh_interval <= retention_seconds:
+        raise RuntimeError('SESSION_REFRESH_INTERVAL_SECONDS must be positive and no greater than session retention.')
+    app.config['SESSION_REFRESH_INTERVAL_SECONDS'] = refresh_interval
     app.permanent_session_lifetime = timedelta(seconds=retention_seconds)
     app.session_interface = SharedSessionInterface(app, client=db, table='web_sessions', permanent=False)
     with app.app_context():
